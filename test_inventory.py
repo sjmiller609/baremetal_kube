@@ -8,9 +8,13 @@ import inventory
 class TestLocalNetworkInventory(unittest.TestCase):
 
     @classmethod
+    @patch("inventory.paramiko")
     @patch("inventory.nmap")
     @patch("inventory.netifaces")
-    def setUpClass(cls, mock_netifaces, mock_nmap):
+    def setUpClass(cls,
+                   mock_netifaces,
+                   mock_nmap,
+                   mock_paramiko):
 
         ip = '192.168.0.1'
         interfaces = ['lo', 'eth0', 'wlo1', 'docker0']
@@ -29,6 +33,14 @@ class TestLocalNetworkInventory(unittest.TestCase):
         mock_host.__getitem__.return_value = {22: {"state": "open"}}
         port_scanner.__getitem__.return_value = mock_host
 
+        mock_client = MagicMock()
+        mock_stdout = MagicMock()
+        mock_stdout.read.return_value = 'EdgeOS'
+        mock_client.exec_command.return_value = (None,
+                                                 mock_stdout,
+                                                 None)
+        mock_paramiko.SSHClient.return_value = mock_client
+
         cls.inventory = inventory.LocalNetworkInventory()
         cls.scanner = port_scanner
         cls.netifaces = mock_netifaces
@@ -45,6 +57,9 @@ class TestLocalNetworkInventory(unittest.TestCase):
     def test_discover_host(self):
         assert "192.168.0.1" in self.inventory.ssh_hosts,\
             f"Did not find in {self.inventory.ssh_hosts}"
+
+    def test_edgeos(self):
+        assert "192.168.0.1" in self.inventory.routers
 
 
 if __name__ == "__main__":

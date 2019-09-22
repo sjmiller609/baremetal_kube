@@ -13,9 +13,9 @@ types:
 Custom dynamic inventory script for Ansible, in Python.
 '''
 
-import argparse
 import netifaces
 import ipaddress
+import paramiko
 import nmap
 
 try:
@@ -26,9 +26,12 @@ except ImportError:
 
 class LocalNetworkInventory(object):
 
+    USERNAME = 'ubnt'
+    PASSWORD = 'ubnt'
+
     def __init__(self):
         self.inventory = {}
-        self._read_cli_args()
+        self.nm = nmap.PortScanner()
 
         self._discover_inventory()
 
@@ -36,19 +39,49 @@ class LocalNetworkInventory(object):
 
     def _discover_inventory(self):
         self._discover_cidr()
-        nm = nmap.PortScanner()
+        self._discover_ssh_open()
+        self._discover_ssh_connect()
+        self._build_inventory()
+
+    def _discover_ssh_connect(self):
+
+        self.routers = []
+        self.nodes = []
+
+        for host in self.ssh_hosts:
+            try:
+                client = paramiko.SSHClient()
+                client.set_missing_host_key_policy(paramiko.WarningPolicy())
+                client.connect(host,
+                               port=22,
+                               username=self.USERNAME,
+                               password=self.PASSWORD)
+                stdin, stdout, stderr = client.exec_command('cat /etc/motd')
+
+                if "edgeos" in stdout.read().lower():
+                    self.routers.append(host)
+
+            except Exception:
+                pass
+            finally:
+                client.close()
+
+        if len(self.routers) > 1:
+            raise Exception(
+                "Currently, only a 1 router configuration is supported. "
+                f"Found {self.routers}")
+
+    def _discover_ssh_open(self):
 
         for cidr in self.cidrs:
             print(f"Scanning port 22 in network {cidr}")
-            nm.scan(hosts=cidr,
-                    ports='22',
-                    arguments='-n',
-                    sudo=False)
+            self.nm.scan(hosts=cidr, ports='22', arguments='-n', sudo=False)
 
         self.ssh_hosts = []
-        for host in nm.all_hosts():
-            if nm[host].has_tcp(22) and \
-               nm[host]['tcp'][22]['state'] == 'open':
+
+        for host in self.nm.all_hosts():
+            if self.nm[host].has_tcp(22) and \
+               self.nm[host]['tcp'][22]['state'] == 'open':
                 self.ssh_hosts.append(host)
 
     def _discover_cidr(self):
@@ -81,35 +114,33 @@ class LocalNetworkInventory(object):
                 print(f"Detected cidr {cidr}")
                 self.cidrs.append(cidr)
 
-    def example_inventory(self):
+    def _build_inventory(self):
         return {
-            'group': {
-                'hosts': ['192.168.28.71', '192.168.28.72'],
-                'vars': {
-                    'ansible_ssh_user': 'vagrant',
-                    'ansible_ssh_private_key_file':
-                    '~/.vagrant.d/insecure_private_key',
-                    'ansible_python_interpreter': '/usr/bin/python3',
-                    'example_variable': 'value'
+            'all': {
+                'children': {
+                    'routers': {
+                        'hosts': self.routers,
+                        'vars': {
+                            'ansible_ssh_user': self.USERNAME,
+                            'ansible_ssh_pass': self.PASSWORD
+                        }
+                    },
+                    'kube_nodes': {
+                        'hosts': self.nodes,
+                        'vars': {
+                            'ansible_ssh_user': self.USERNAME,
+                            'ansible_ssh_pass': self.PASSWORD
+                        }
+                    }
                 }
             },
-            '_meta': {
-                'hostvars': {
-                    '192.168.28.71': {
-                        'host_specific_var': 'foo'
-                    },
-                    '192.168.28.72': {
-                        'host_specific_var': 'bar'
-                    }
+            "_meta": {
+                "hostvars": {
+                    'ansible_ssh_user': self.USERNAME,
+                    'ansible_ssh_pass': self.PASSWORD
                 }
             }
         }
-
-    # Read the command line args passed to the script.
-    def _read_cli_args(self):
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--cidr', action='store_true')
-        self.args = parser.parse_args()
 
 
 if __name__ == "__main__":
