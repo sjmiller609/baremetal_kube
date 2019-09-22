@@ -16,6 +16,7 @@ Custom dynamic inventory script for Ansible, in Python.
 import argparse
 import netifaces
 import ipaddress
+import nmap
 
 try:
     import json
@@ -34,22 +35,41 @@ class LocalNetworkInventory(object):
         print(json.dumps(self.inventory))
 
     def _discover_inventory(self):
-        pass
+        self._discover_cidr()
+        nm = nmap.PortScanner()
+
+        for cidr in self.cidrs:
+            print(f"Scanning port 22 in network {cidr}")
+            nm.scan(hosts=cidr,
+                    ports='22',
+                    arguments='-n',
+                    sudo=False)
+
+        self.ssh_hosts = []
+        for host in nm.all_hosts():
+            if nm[host].has_tcp(22) and \
+               nm[host]['tcp'][22]['state'] == 'open':
+                self.ssh_hosts.append(host)
 
     def _discover_cidr(self):
-        self.cidr = ""
+        self.cidrs = []
         interfaces = netifaces.interfaces()
         interfaces = list(filter(lambda x: x[0] == "e", interfaces))
+
         if len(interfaces) < 1:
-            raise Exception("Did not detect any interfaces starting with "
-                            "the character 'e'")
+            raise Exception("Did not detect any interfaces starting "
+                            "with the character 'e'")
+
         for interface in interfaces:
             print(f"Detected interface {interface}:")
+
             for address in netifaces.ifaddresses(interface)[netifaces.AF_INET]:
                 ip_address = address['addr']
                 netmask = address['netmask']
+
                 if not ipaddress.ip_address(ip_address).version == 4:
                     print(f"Ignoring non-IPv4 address: {ip_address}")
+
                     continue
                 remove_host_bits = ip_address.split(".")
                 remove_host_bits.pop()
@@ -57,8 +77,9 @@ class LocalNetworkInventory(object):
                 remove_host_bits = ".".join(remove_host_bits)
                 netmask = ipaddress.IPv4Network(
                     f"{remove_host_bits}/{netmask}").prefixlen
-                self.cidr += f"{remove_host_bits}/{netmask},"
-        self.cidr = self.cidr[:-1]
+                cidr = f"{remove_host_bits}/{netmask}"
+                print(f"Detected cidr {cidr}")
+                self.cidrs.append(cidr)
 
     def example_inventory(self):
         return {
@@ -91,5 +112,6 @@ class LocalNetworkInventory(object):
         self.args = parser.parse_args()
 
 
-# Get the inventory.
-LocalNetworkInventory()
+if __name__ == "__main__":
+    # Get the inventory.
+    LocalNetworkInventory()
