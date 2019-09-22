@@ -1,2 +1,3 @@
 python-nmap==0.6.1
 paramiko==2.6.0
+ansible==2.8.5

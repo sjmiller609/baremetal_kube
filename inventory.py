@@ -13,6 +13,7 @@ types:
 Custom dynamic inventory script for Ansible, in Python.
 '''
 
+import sys
 import netifaces
 import ipaddress
 import paramiko
@@ -51,14 +52,16 @@ class LocalNetworkInventory(object):
         for host in self.ssh_hosts:
             try:
                 client = paramiko.SSHClient()
-                client.set_missing_host_key_policy(paramiko.WarningPolicy())
+                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 client.connect(host,
                                port=22,
                                username=self.USERNAME,
                                password=self.PASSWORD)
                 stdin, stdout, stderr = client.exec_command('cat /etc/motd')
+                motd = stdout.read().decode('utf-8')
 
-                if "edgeos" in stdout.read().lower():
+                if "edgeos" in motd.lower():
+                    sys.stderr.write(f"Detected EdgeOS on host: {host}\n")
                     self.routers.append(host)
 
             except Exception:
@@ -74,7 +77,7 @@ class LocalNetworkInventory(object):
     def _discover_ssh_open(self):
 
         for cidr in self.cidrs:
-            print(f"Scanning port 22 in network {cidr}")
+            sys.stderr.write(f"Scanning port 22 in network {cidr}\n")
             self.nm.scan(hosts=cidr, ports='22', arguments='-n', sudo=False)
 
         self.ssh_hosts = []
@@ -94,14 +97,15 @@ class LocalNetworkInventory(object):
                             "with the character 'e'")
 
         for interface in interfaces:
-            print(f"Detected interface {interface}:")
+            sys.stderr.write(f"Detected interface {interface}:\n")
 
             for address in netifaces.ifaddresses(interface)[netifaces.AF_INET]:
                 ip_address = address['addr']
                 netmask = address['netmask']
 
                 if not ipaddress.ip_address(ip_address).version == 4:
-                    print(f"Ignoring non-IPv4 address: {ip_address}")
+                    sys.stderr.write(
+                        f"Ignoring non-IPv4 address: {ip_address}\n")
 
                     continue
                 remove_host_bits = ip_address.split(".")
@@ -111,34 +115,26 @@ class LocalNetworkInventory(object):
                 netmask = ipaddress.IPv4Network(
                     f"{remove_host_bits}/{netmask}").prefixlen
                 cidr = f"{remove_host_bits}/{netmask}"
-                print(f"Detected cidr {cidr}")
+                sys.stderr.write(f"Detected cidr {cidr}\n")
                 self.cidrs.append(cidr)
 
     def _build_inventory(self):
-        return {
+        self.inventory = {
             'all': {
-                'children': {
-                    'routers': {
-                        'hosts': self.routers,
-                        'vars': {
-                            'ansible_ssh_user': self.USERNAME,
-                            'ansible_ssh_pass': self.PASSWORD
-                        }
-                    },
-                    'kube_nodes': {
-                        'hosts': self.nodes,
-                        'vars': {
-                            'ansible_ssh_user': self.USERNAME,
-                            'ansible_ssh_pass': self.PASSWORD
-                        }
-                    }
+                'children': ['routers', 'kube_nodes']
+            },
+            "routers": {
+                "hosts": self.routers,
+                "vars": {
+                    "ansible_ssh_username": self.USERNAME,
+                    "ansible_ssh_pass": self.PASSWORD
                 }
             },
+            "kube_nodes": {
+                "hosts": self.routers
+            },
             "_meta": {
-                "hostvars": {
-                    'ansible_ssh_user': self.USERNAME,
-                    'ansible_ssh_pass': self.PASSWORD
-                }
+                "hostvars": {}
             }
         }
 

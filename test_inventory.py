@@ -35,7 +35,7 @@ class TestLocalNetworkInventory(unittest.TestCase):
 
         mock_client = MagicMock()
         mock_stdout = MagicMock()
-        mock_stdout.read.return_value = 'EdgeOS'
+        mock_stdout.read.return_value = b'asdfasdf EdgeOS asdfasdf'
         mock_client.exec_command.return_value = (None,
                                                  mock_stdout,
                                                  None)
