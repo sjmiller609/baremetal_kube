@@ -126,8 +126,10 @@ class LocalNetworkInventory(object):
             "routers": {
                 "hosts": self.routers,
                 "vars": {
-                    "ansible_ssh_username": self.USERNAME,
-                    "ansible_ssh_pass": self.PASSWORD
+                    "ansible_user": self.USERNAME,
+                    "ansible_password": self.PASSWORD,
+                    "ansible_connection": "network_cli",
+                    "ansible_network_os": "edgeos"
                 }
             },
             "kube_nodes": {
