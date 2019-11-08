@@ -1,7 +1,39 @@
 ---
+# - hosts: local
+#   ansible_connection: local
+#   gather_facts: false
+#   tasks:
+#
+#   - name: Generate an SSH key
+#     openssh_keypair:
+#       path: ~/.ssh/id_rsa_edgeos
+#       size: 4096
+#
+#   - name: Download latest EdgeRouter LITE firmware
+#     get_url:
+#       url: 'https://www.ui.com/download/edgemax/edgerouter-lite#'
+#       dest: /tmp/edgeroute-lite-firmware.tar
+#       mode: '0440'
+
 - hosts: routers
   gather_facts: false
   tasks:
+
+  # For my home network, I heavily favor security over availability
+  - name: Secure Control
+    edgeos_command:
+      commands:
+        - configure
+        # - delete system image
+        # - delete service gui
+        # - delete service gui http-port 80
+        # - set service ssh-recovery disabled
+        - set service ssh listen-address 192.168.2.1
+        - set service gui listen-address 192.168.2.1
+        # - set service ssh disable-password-authentication
+        - commit
+        - save
+
   - name: Check for three interfaces
     edgeos_command:
       commands: show interfaces ethernet {{ item }}
@@ -72,16 +104,16 @@
         # Configure DHCP server for internal subnets on eth0 and eth1
         - delete service dhcp-server
         - set service dhcp-server disabled false
-        - set service dhcp-server shared-network-name LAN1 authoritative enable
-        - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 default-router 192.168.1.1
-        - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 dns-server 192.168.1.1
-        - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 lease 86400
-        - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 start 192.168.1.38 stop 192.168.1.243
         - set service dhcp-server shared-network-name LAN2 authoritative enable
         - set service dhcp-server shared-network-name LAN2 subnet 192.168.2.0/24 default-router 192.168.2.1
         - set service dhcp-server shared-network-name LAN2 subnet 192.168.2.0/24 dns-server 192.168.2.1
         - set service dhcp-server shared-network-name LAN2 subnet 192.168.2.0/24 lease 86400
         - set service dhcp-server shared-network-name LAN2 subnet 192.168.2.0/24 start 192.168.2.38 stop 192.168.2.243
+        - set service dhcp-server shared-network-name LAN1 authoritative enable
+        - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 default-router 192.168.1.1
+        - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 dns-server 192.168.1.1
+        - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 lease 86400
+        - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 start 192.168.1.38 stop 192.168.1.243
         - commit
         - save
   - name: Configure DNS

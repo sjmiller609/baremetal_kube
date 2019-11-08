@@ -18,6 +18,7 @@ import netifaces
 import ipaddress
 import paramiko
 import nmap
+from subprocess import check_output
 
 try:
     import json
@@ -63,6 +64,8 @@ class LocalNetworkInventory(object):
                 if "edgeos" in motd.lower():
                     sys.stderr.write(f"Detected EdgeOS on host: {host}\n")
                     self.routers.append(host)
+                else:
+                    sys.stderr.write(motd)
 
             except Exception:
                 pass
@@ -98,6 +101,11 @@ class LocalNetworkInventory(object):
 
         for interface in interfaces:
             sys.stderr.write(f"Detected interface {interface}:\n")
+
+            if not netifaces.AF_INET in netifaces.ifaddresses(interface):
+                sys.stderr.write(f"Interface {interface} does not have a configured IP address. Configuring to the default network for EdgeLITE router:\n")
+                check_output(["ifconfig", interface, "192.168.1.100"])
+                check_output(["ifconfig", interface, "netmask", "255.255.255.0"])
 
             for address in netifaces.ifaddresses(interface)[netifaces.AF_INET]:
                 ip_address = address['addr']
