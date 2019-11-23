@@ -28,3 +28,51 @@
       - nfs-kernel-server
       - initramfs-tools
     state: present
+
+- name: 'Configure TFTP: configure server'
+  become: yes
+  copy:
+    src: tftpd-hpa
+    dest: /etc/default/tftpd-hp
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: 'Configure TFTP: create root directory structure'
+  become: yes
+  file:
+    path: "/tftpboot/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0744'
+  with_items:
+    - pxelinux.cfg
+    - boot
+
+# better than 'copy' directive because copy would
+# not work when not using localhost target.
+# also, this is much faster
+- name: 'Configure TFTP: pxelinux.0 and isolinux'
+  become: yes
+  shell: |
+    set -xe
+    rm /tftpboot/pxelinux.0 || true
+    rm -rf /tftpboot/boot/isolinux || true
+    cp /usr/lib/PXELINUX/pxelinux.0 /tftpboot
+    cp -r /usr/lib/syslinux/modules/bios /tftpboot/boot/isolinux
+
+- name: 'Configure TFTP: pxelinux.cfg'
+  become: yes
+  copy:
+    src: pxelinux.cfg
+    dest: /tftpboot/pxelinux.cfg/default
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Start service tftpd-hpa
+  become: yes
+  service:
+    name: tftpd-hpa
+    state: started
