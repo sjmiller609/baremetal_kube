@@ -6,6 +6,7 @@
 #     - edgeos
 
 - hosts: localhost
+  become: yes
   gather_facts: true
   roles:
     - pxe-server

@@ -17,10 +17,10 @@
     that: ansible_distribution_major_version == "18"
 
 - name: Install packages
-  become: yes
   apt:
     update_cache: yes
     name:
+      # we are using EdgeOS router for DHCP
       # - isc-dhcp-server
       - tftpd-hpa
       - syslinux
@@ -29,8 +29,7 @@
       - initramfs-tools
     state: present
 
-- name: 'Configure TFTP: configure server'
-  become: yes
+- name: Configure FTP server
   copy:
     src: tftpd-hpa
     dest: /etc/default/tftpd-hp
@@ -38,14 +37,13 @@
     group: root
     mode: '0644'
 
-- name: 'Configure TFTP: create root directory structure'
-  become: yes
+- name: Create root directory structure for FTP server
   file:
     path: "/tftpboot/{{ item }}"
     state: directory
     owner: root
     group: root
-    mode: '0744'
+    mode: '0755'
   with_items:
     - pxelinux.cfg
     - boot
@@ -53,26 +51,79 @@
 # better than 'copy' directive because copy would
 # not work when not using localhost target.
 # also, this is much faster
-- name: 'Configure TFTP: pxelinux.0 and isolinux'
-  become: yes
+- name: Add pxelinux.0 and isolinux to FTP directory
   shell: |
     set -xe
     rm /tftpboot/pxelinux.0 || true
     rm -rf /tftpboot/boot/isolinux || true
     cp /usr/lib/PXELINUX/pxelinux.0 /tftpboot
     cp -r /usr/lib/syslinux/modules/bios /tftpboot/boot/isolinux
+    chmod -R +r /tftpboot
 
-- name: 'Configure TFTP: pxelinux.cfg'
-  become: yes
+- name: Set up pxelinux.cfg in FTP directory
   copy:
     src: pxelinux.cfg
     dest: /tftpboot/pxelinux.cfg/default
     owner: root
     group: root
-    mode: '0644'
+    mode: "0644"
+
+- set_fact:
+    ssh_pub_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+- name: Create container linux configuration file locally
+  delegate_to: localhost
+  template:
+    src: container_linux_config.yaml.j2
+    dest: /tmp/container_linux_config.yaml
+
+- name: Install GPG2 locally
+  delegate_to: localhost
+  package:
+    name:
+      - gnupg2
+    state: present
+
+- name: Install Container Linux configuration transpiler locally and transpile configuration to Ignition
+  delegate_to: localhost
+  shell: |
+    set -xe
+    CT_VER=v0.6.1
+    ARCH=x86_64
+    OS=unknown-linux-gnu # Linux
+    DOWNLOAD_URL=https://github.com/coreos/container-linux-config-transpiler/releases/download
+    # Remove previous downloads
+    rm -f /tmp/ct-${CT_VER}-${ARCH}-${OS} /tmp/ct-${CT_VER}-${ARCH}-${OS}.asc /tmp/coreos-app-signing-pubkey.gpg
+    # Download Config Transpiler binary
+    curl -L ${DOWNLOAD_URL}/${CT_VER}/ct-${CT_VER}-${ARCH}-${OS} -o /tmp/ct-${CT_VER}-${ARCH}-${OS}
+    chmod u+x /tmp/ct-${CT_VER}-${ARCH}-${OS}
+    # Download and import CoreOS application signing GPG key
+    curl https://coreos.com/dist/pubkeys/app-signing-pubkey.gpg -o /tmp/coreos-app-signing-pubkey.gpg
+    gpg2 --import --keyid-format LONG /tmp/coreos-app-signing-pubkey.gpg
+    # Download and import CoreOS application signing GPG key if it has not already been imported
+    curl -L ${DOWNLOAD_URL}/${CT_VER}/ct-${CT_VER}-${ARCH}-${OS}.asc -o /tmp/ct-${CT_VER}-${ARCH}-${OS}.asc
+    gpg2 --verify /tmp/ct-${CT_VER}-${ARCH}-${OS}.asc /tmp/ct-${CT_VER}-${ARCH}-${OS}
+    /tmp/ct-${CT_VER}-${ARCH}-${OS} --in-file /tmp/container_linux_config.yaml > /tmp/ignition_config.json
+
+- name: Copy Ignition config to FTP directory
+  copy:
+    src: /tmp/ignition_config.json
+    dest: /tftpboot/pxe-config.ign
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Download the latest stable CoreOS kernel and initrd to the FTP directory
+  get_url:
+    force: yes
+    url: "{{ item }}"
+    dest: /tftpboot/
+    mode: "0644"
+  with_items:
+  - "https://stable.release.core-os.net/amd64-usr/current/coreos_production_pxe.vmlinuz"
+  - "https://stable.release.core-os.net/amd64-usr/current/coreos_production_pxe_image.cpio.gz"
 
 - name: Start service tftpd-hpa
-  become: yes
   service:
     name: tftpd-hpa
     state: started

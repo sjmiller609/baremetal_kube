@@ -1,0 +1,9 @@
+systemd:
+  units:
+    - name: etcd2.service
+      enable: true
+passwd:
+  users:
+    - name: core
+      ssh_authorized_keys:
+        - {{ ssh_pub_key }}
