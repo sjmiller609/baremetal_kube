@@ -1,0 +1,30 @@
+---
+# tasks file for pxe-server
+#
+- name: System details
+  debug: msg="{{ item }}"
+  with_items:
+  - "{{ ansible_distribution }}"
+  - "{{ ansible_distribution_version }}"
+  - "{{ ansible_distribution_major_version }}"
+
+- name: Check distribution is Ubuntu
+  assert:
+    that: ansible_distribution == "Ubuntu"
+
+- name: Check distribution major version is 18
+  assert:
+    that: ansible_distribution_major_version == "18"
+
+- name: Install packages
+  become: yes
+  apt:
+    update_cache: yes
+    name:
+      # - isc-dhcp-server
+      - tftpd-hpa
+      - syslinux
+      - pxelinux
+      - nfs-kernel-server
+      - initramfs-tools
+    state: present

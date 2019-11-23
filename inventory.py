@@ -129,7 +129,7 @@ class LocalNetworkInventory(object):
     def _build_inventory(self):
         self.inventory = {
             'all': {
-                'children': ['routers', 'kube_nodes']
+                'children': ['routers', 'kube_nodes', 'localhost']
             },
             "routers": {
                 "hosts": self.routers,
@@ -142,6 +142,12 @@ class LocalNetworkInventory(object):
             },
             "kube_nodes": {
                 "hosts": self.routers
+            },
+            "localhost": {
+                "vars": {
+                    "ansible_connection": "local",
+                    "ansible_python_interpreter": "/usr/bin/python"
+                }
             },
             "_meta": {
                 "hostvars": {}

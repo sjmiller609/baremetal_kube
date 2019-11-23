@@ -1,0 +1,114 @@
+---
+# tasks file for edgeos
+#
+# For my home network, I heavily favor security over availability
+- name: Secure Control
+  edgeos_command:
+    commands:
+      - configure
+      # - delete system image
+      # - delete service gui
+      # - delete service gui http-port 80
+      # - set service ssh-recovery disabled
+      - set service ssh listen-address 192.168.2.1
+      - set service gui listen-address 192.168.2.1
+      # - set service ssh disable-password-authentication
+      - commit
+      - save
+
+- name: Check for three interfaces
+  edgeos_command:
+    commands: show interfaces ethernet {{ item }}
+  loop:
+    - eth0
+    - eth1
+    - eth2
+
+- name: Configure WAN interface eth2
+  edgeos_command:
+    commands:
+      - configure
+      # Ingress to internal network
+      - set firewall name WAN_IN default-action drop
+      - set firewall name WAN_IN description 'WAN to internal network'
+      - set firewall name WAN_IN rule 10 action accept
+      - set firewall name WAN_IN rule 10 description 'Allow established/related'
+      - set firewall name WAN_IN rule 10 state established enable
+      - set firewall name WAN_IN rule 10 state related enable
+      - set firewall name WAN_IN rule 20 action drop
+      - set firewall name WAN_IN rule 20 description 'Drop invalid state'
+      - set firewall name WAN_IN rule 20 state invalid enable
+      # Ingress to the router itself
+      - set firewall name WAN_LOCAL default-action drop
+      - set firewall name WAN_LOCAL description 'WAN to router'
+      - set firewall name WAN_LOCAL rule 10 action accept
+      - set firewall name WAN_LOCAL rule 10 description 'Allow established/related'
+      - set firewall name WAN_LOCAL rule 10 state established enable
+      - set firewall name WAN_LOCAL rule 10 state related enable
+      - set firewall name WAN_LOCAL rule 20 action drop
+      - set firewall name WAN_LOCAL rule 20 description 'Drop invalid state'
+      - set firewall name WAN_LOCAL rule 20 state invalid enable
+      # Ensure full reset
+      - delete interfaces ethernet eth2
+      # Connect firewall to eth2
+      - set interfaces ethernet eth2 firewall in name WAN_IN
+      - set interfaces ethernet eth2 firewall local name WAN_LOCAL
+      # Set eth2 as WAN and DHCP client
+      - set interfaces ethernet eth2 address dhcp
+      - commit
+      - save
+- name: Configure LAN interfaces eth0 and eth1
+  edgeos_command:
+    commands:
+      - configure
+      # Configure LAN interfaces
+      - delete interfaces ethernet eth0
+      - delete interfaces ethernet eth1
+      - set interfaces ethernet eth0 address 192.168.1.1/24
+      - set interfaces ethernet eth1 address 192.168.2.1/24
+      - commit
+      - save
+- name: Configure NAT and DHCP
+  edgeos_command:
+    commands:
+      - configure
+      # Configure masquerade
+      - delete service nat
+      - set service nat rule 5010 description 'masquerade to WAN from LAN1'
+      - set service nat rule 5010 outbound-interface eth2
+      - set service nat rule 5010 type masquerade
+      - set service nat rule 5010 protocol all
+      - set service nat rule 5010 source address 192.168.1.0/24
+      - set service nat rule 5011 description 'masquerade to WAN from LAN2'
+      - set service nat rule 5011 outbound-interface eth2
+      - set service nat rule 5011 type masquerade
+      - set service nat rule 5011 protocol all
+      - set service nat rule 5011 source address 192.168.2.0/24
+      # Configure DHCP server for internal subnets on eth0 and eth1
+      - delete service dhcp-server
+      - set service dhcp-server disabled false
+      - set service dhcp-server shared-network-name LAN2 authoritative enable
+      - set service dhcp-server shared-network-name LAN2 subnet 192.168.2.0/24 default-router 192.168.2.1
+      - set service dhcp-server shared-network-name LAN2 subnet 192.168.2.0/24 dns-server 192.168.2.1
+      - set service dhcp-server shared-network-name LAN2 subnet 192.168.2.0/24 lease 86400
+      - set service dhcp-server shared-network-name LAN2 subnet 192.168.2.0/24 start 192.168.2.38 stop 192.168.2.243
+      - set service dhcp-server shared-network-name LAN1 authoritative enable
+      - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 default-router 192.168.1.1
+      - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 dns-server 192.168.1.1
+      - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 lease 86400
+      - set service dhcp-server shared-network-name LAN1 subnet 192.168.1.0/24 start 192.168.1.38 stop 192.168.1.243
+      - commit
+      - save
+- name: Configure DNS
+  edgeos_command:
+    commands:
+      - configure
+      - delete service dns
+      - set service dns forwarding system
+      - set system name-server 8.8.8.8
+      - set system name-server 8.8.4.4
+      - delete service dns forwarding listen-on
+      - set service dns forwarding listen-on eth0
+      - set service dns forwarding listen-on eth1
+      - commit
+      - save
