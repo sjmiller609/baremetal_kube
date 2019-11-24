@@ -6,7 +6,6 @@
     - debug:
         msg: "{{ hostvars['localhost']['ansible_default_ipv4']['address'] }}"
 
-
 - hosts: routers
   roles:
     - edgeos

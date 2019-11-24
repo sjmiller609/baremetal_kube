@@ -1,42 +1,125 @@
+# Project Home Datacenter
+### Low-effort Kubernetes on Bare Metal at home
 
-Configure an interface manually
-```
-sudo ifconfig eth0 192.168.1.100
-sudo ifconfig eth0 netmask 255.255.255.0
-```
+I am building an automated Kubernetes cluster on bare metal in my basement. I hope this guide and the included automation can be useful for other tinkerers who may want to run a cluster in their home.
 
-Test DHCP
-```
-# remove IP
-sudo dhclient -r eth0
+I am building this for myself, and I intend actually use it for real applications. For my use case, I am prioritizing ease of maintaince and repair. Life is easier when software can be fully reset or replaced instead of reconfigured when issues arise. That's why this automation is intended to deploy and keep up to date the entire configuration, as close to from-scratch as possible. I want it to be easy, given the hardware, to reproduce this system.
 
-# check IP removed
-ifconfig
+To achieve this goal, the following technologies are deployed, configured, or automated using Ansible:
+- Host discovery ([dynamic inventory](https://docs.ansible.com/ansible/latest/dev_guide/developing_inventory.html), [nmap](https://nmap.org/))
+- Configure network and core services ([EdgeOS](https://www.ui.com/edgemax/edgerouter-lite/))
+- Deploy and update operating systems on the nodes ([Container Linux, PXE network booting](https://coreos.com/os/docs/latest/booting-with-pxe.html))
+- Deploy and update Kubernetes ([Kubespray](https://github.com/kubernetes-sigs/kubespray))
+- Deploy and update applications ([Helm](https://github.com/helm/helm))
 
-# manually do DHCP
-sudo dhclient -r eth0
-```
+## Step 1: Site planning
 
-# Running Kubernetes on Bare Metal
+I have a basement where my ISP's fiber optic hookup (ONT) is installed. There are plenty of outlets. I will worry about power draw after I run into the problem. After cleaning up the workspace, there is plenty of room to set up computers.
 
-There are a few how-tos online about running Kubernetes on a baremetal build at home. I have wondered, what does it take to build a production-grade cluster? I figured I would give it a shot in my basement, I call it 'project home datacenter'.
+### Humidity and temperature
 
-In the process of this project, I have found it's necessary to dig into the nitty-gritty time and time again. Since cloud providers are so prevalent these days, it's easy for younger technologists like myselft to take for granted everything that goes into making it happen. It certainly is a breeze these days to serve your website to the whole world! CDNs like CloudFront and Netifly make it so easy. For 'project home datacenter', I haved needed to consider temperature, humidity, dust, networking protocols, PXE booting, and much more. This is not a project for the faint of heart, and it's really only interesting to those who are motivated by the pursuit itself. I like tinkering, so I have had a blast. If there are those out there who dream of running it all at home, using the latest, and sexiest techologies (even when not really necessary) read on...
+I figure it is warranted to consider these factors right off the bat, since I want to protect my investment.
 
-## Step 1: Site planning and preparation
+I have a dehumidifer to keep the area in the right range. Basements are best kept between 30-50% humidity to keep the foundation healthy and to prevent mold. For the datacenter, lower humidities have a higher risk of electro static discharge - this could lead to fried circuts. Higher humidity carries the risk of condenstation. Online I have found the recommended range for a datacenter is 45-55% humidity, with 30% and 70% being critical. 45% is a good balance.
 
-I used to work in a datacenter at Cisco. I thought it was interesting to learn that one of the most expensive parts of the datacenter build is floor space - that is, the room that the equipment takes up in the build is a significant portion of the cost, even compared to the hardware itself. As a recently new homeowner, I have certainly found this to be the case. Luckily, I have a nice location in my basement to set up my new datacenter. The only problem is that it seems like nobody has come down here in 25 years.
+68-75 F is the ideal operating temperature. Luckily, this is also a comfortable living temperature, so I will let the furnace and AC take care of that.
 
-Mold remediation:
+### Dust
 
-First, I remeditated the mold issue. My uncle in law has a nice recipe for those who are interested - 30% bleach and 70% water to fill up two gallons, then add two cups of trisodium phosphate. This is a very abrasive and highly oxidizing mixture, so gloves are recommended. Pour this mixture in a spray container, like you would use for spraying weeds, and spray it on all the effected areas. I found that my eyes were stinging, so I figure that means it's doing a good job to kill the mold. After a few hours, do it again. Wait a day or two for the area to be less painful to be in. It should be pretty easy now with a steel brush to scrape the mold off of the walls.
+If you plan to keep your hardware in ship-shape, it's worth considering dust. Especially in a place like a basement, dust becomes a real problem. I cleaned my basement, but even still the dust seems likely to be a problem. To mitigate this issue, I have purchased non-woven polyster bags to put my computers in. [This study](https://nepis.epa.gov/Exe/ZyNET.exe/9101XVJT.txt?ZyActionD=ZyDocument&Client=EPA&Index=1976%20Thru%201980&Docs=&Query=&Time=&EndTime=&SearchMethod=1&TocRestrict=n&Toc=&TocEntry=&QField=&QFieldYear=&QFieldMonth=&QFieldDay=&UseQField=&IntQFieldOp=0&ExtQFieldOp=0&XmlQuery=&File=D%3A%5CZYFILES%5CINDEX%20DATA%5C76THRU80%5CTXT%5C00000035%5C9101XVJT.txt&User=ANONYMOUS&Password=anonymous&SortMethod=h%7C-&MaximumDocuments=1&FuzzyDegree=0&ImageQuality=r75g8/r75g8/x150y150g16/i425&Display=hpfr&DefSeekPage=x&SearchBack=ZyActionL&Back=ZyActionS&BackDesc=Results%20page&MaximumPages=1&ZyEntry=2#) may help inform your choice. I will find out along the way if these bags prove to protect from dust and not insulate the computers too much.
 
-I have traditional IT experience from school and work, but now I'm being faced with a new challenge - Kubernetes.
+## Step 2: Plan architecture and buy hardware
 
-## Step 2: Hardware
+The objective of this project is to set up a performant cluster that can actually be used for real-world applications. I want to be able to use normal containers, so I need to run on the right architecture. I want to run a variety of workloads, so I want there to be a fair amount of resources available initially, and the option to expand moving forward.
 
-I bought refurbished business desktops from a local computer store. I bought a managed switch running the EdgeOS operating system.
+### Consider the applications
+
+I may run a code repository server, a media server, a security system, home automation, or a web application backend. To highlight a real-world use case, I could serve a web application from a CDN, and run the database and any required controller logic in my datacenter. This is a cost-effective design. In 2019, CDNs are very affordable, but running Kuberentes clusters and managed database services are more costly. The nature of web apps usually demands very low latency for static content, but the services backend do not usually require such a low latency that it would not be acceptable to serve from a single geographic location. This is especially true when the applications will mostly be for personal or friend use.
+
+### What are the requirements of the architecture?
+
+Cost savings and flexibility:
+
+I don't want to spend money on a rack-style setup because that will be too expensive. I also want to be able to mix and match different compute so I do not need to do costly fleet upgrades. I will prefer to use commodity, replacable hardware where I can.
+
+Low maintainence overhead:
+
+Ease of maintaince and repair are a high priority. Life is easier when software can be fully reset or replaced instead of reconfigured when issues arise. That's why this automation is intended to deploy and keep up to date the entire configuration, as close to from-scratch as possible. I want it to be easy, given the hardware, to reproduce this system.
+
+Availability and fault tolerace:
+
+Being hooked up to only one, non-business ISP means that I will not be able to achieve high availabilty. Should it ever get to the point that HA becomes necessary, then I may consider migrating the services to the cloud. I am mostly concerned that the architecture will allow the system to fix itself, but not that it will always be available.
+
+### Compute:
+
+- Master/Worker nodes: (1) Refurbished HP ProDesk business-class desktops (~$300 as of summer 2019).
+
+This comes with a i5-4690 CPU @ 3.50GHz, 16GB memory, and a 500GB SSD. I can buy another one of these after I am running enough application to justify the cost. Having consulted the Kubespray documentation, I ought to be able to run the cluster with only one node at first.
+
+- Laptop for the command center: HP EliteBook 8540w
+
+This has a Intel(R) Core(TM) i7 CPU M 620 @ 2.67GHz and 8GB of RAM. This is where I will run and develop the automation. This is an old laptop that I have laying around. Pretty much any amd64 box will do. The only real hardware requirement are the correct architecture and a fast-enough NIC to serve OS images. I decided to have the command center separate from the cluster because it is annoying to experience interference with development and testing, so better to keep that isolated from the machines that will be more heavily automated.
+
+### Network
+
+We will need a managed router - a router that can be programatically configured (in this case, with Ansible).  For example, we will want to carefully control DHCP to configure PXE booting the Kubernetes nodes (see Step 3: Network), and we will want BGP features to enable bare metal load balancing in Kubernetes (TODO).
+
+I chose the [EdgeRouter LITE](https://www.ui.com/edgemax/edgerouter-lite/) ($129) because it is an inexpensive and performant option. Ansible includes edgeos_* modules to configure routers running the EdgeOS operating system.
+
+I also bought some CAT6 cabling ($29.99) and a generic, 8-port switch ($19.99).
+
+### Storage
+
+The worker node came with a 500GB SSD, which should be fine for now. Down the line, I hope to use local, SSD storage as ephemeral pod storage and provide persisent storage using NFS HDDs (TODO).
 
 ## Step 3: Network
 
-I wrote an Ansible role to configure the router and core services.
+I wrote an Ansible role to configure the router and core services. The role is specifically designed for the EdgeRouter LITE, but should work for any EdgeOS router.
+
+There are three interfaces on the EdgeRouter LITE. They are configured like this:
+- eth2: WAN, DHCP client, firewall
+- eth0: LAN1, 192.168.1.0/24, DHCP server, DNS server + caching
+- eth1: LAN2, 192.168.2.0/24, DNS server + caching
+
+The eth2 port is connected with CAT6 cabling to the fiber optic (ONT) hookup. The eth0 port is connected to my WiFi router to serve my home network. The eth1 port is connected to the switch, and the switch it connected to the command center and the Kubernetes node(s).
+
+Notes:
+- DHCP is not running on the router for the datacenter subnet 192.168.2.0/24 because we will run a PXE and DHCP server for the datacenter from the command center.
+- On initial set up, it is necessary to manually configure the interface of the command center (because there is no DHCP provider). For example:
+```
+# Check the name of your interface:
+ifconfig
+# Let's say your interface is named eth0:
+# Set the IP address
+sudo ifconfig eth0 192.168.1.100
+# Set the netmask
+sudo ifconfig eth0 netmask 255.255.255.0
+# Check if we can reach the router
+ssh ubnt@192.168.1.1
+```
+- After the router has been configured with Ansible, we will want to return our command center to using DHCP
+```
+# remove IP
+sudo dhclient -r eth0
+# check IP removed
+ifconfig
+# manually initiate DHCP
+sudo dhclient -r eth0
+```
+
+## Step 4: Installing operating systems
+
+I want to be able to easily add nodes to the cluster, and to have the operating system updated automatically. Container Linux is designed for this exact use case. Container Linux, when installed on a drive, will keep itself up to date automatically by downloading the new version to the drive, and booting from that on the next restart. Alternatively, the OS can be run on a node without any hard drive by booting the machine over the network. This is great because the process for adding a node to the network is just to change the boot order on the new device to network first, plugging it into the network, and turning it on.
+
+An Ansible role pxe-server was developed to target the command center. It is expected for the command center to run any flavor of Ubuntu 18. I have developed it using Xubuntu 18.04. PXE booting is a protocol where the client (booting) machine will reach out over the network to grab a kernel and a configuration to launch itself.
+
+Services deployed on the command center to enable network booting:
+- DHCP server for the 192.168.2.0/24 subnet (configured to work with PXE)
+- FTP server to serve the operating system ([Container Linux](https://stable.release.core-os.net/amd64-usr/current/))
+- Apache 2 webserver to serve the installation configuration ([Container Linux config with is 'transpiled' into Ignition format](https://coreos.com/matchbox/docs/latest/container-linux-config.html))
+
+## Step 5: Kubernetes
+
+I chose [Kubespray](https://github.com/kubernetes-sigs/kubespray) to deploy Kubernetes because it is simple, customizable, and maintained. It seems to me the most stable and supported choice available as of 2019. During experimentation, I had success with deploying kuberentes on a single node, sharing the node as both a worker and the control plane.
+
+As a part of host discovery, the Ansible dynamic inventory performs a network scan to detect nodes that have been booted into Container Linux. These nodes will be targeted for running both the Kubernetes control plane, and the worker nodes.
