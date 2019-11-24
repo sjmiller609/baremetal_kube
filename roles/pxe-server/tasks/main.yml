@@ -123,7 +123,24 @@
   - "https://stable.release.core-os.net/amd64-usr/current/coreos_production_pxe.vmlinuz"
   - "https://stable.release.core-os.net/amd64-usr/current/coreos_production_pxe_image.cpio.gz"
 
-- name: Start service tftpd-hpa
+- name: Change ownership of all files in the FTP directory to tftp user and group
+  file:
+    path: /tftpboot
+    state: directory
+    recurse: yes
+    owner: tftp
+    group: tftp
+    mode: "744"
+
+- name: Open firewall for FTP
+  ufw:
+    rule: allow
+    port: tftp
+
+- name: Start services ufw and tftpd-hpa
   service:
-    name: tftpd-hpa
-    state: started
+    name: "{{ item }}"
+    state: restarted
+  with_items:
+    - ufw
+    - tftpd-hpa
