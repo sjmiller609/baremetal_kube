@@ -20,14 +20,22 @@
   apt:
     update_cache: yes
     name:
-      # we are using EdgeOS router for DHCP
-      # - isc-dhcp-server
+      - apache2
+      - isc-dhcp-server
       - tftpd-hpa
       - syslinux
       - pxelinux
       - nfs-kernel-server
       - initramfs-tools
     state: present
+
+- name: Configure DHCP server
+  copy:
+    src: dhcpd.conf
+    dest: /etc/dhcp/dhcpd.conf
+    owner: root
+    group: root
+    mode: '0644'
 
 - name: Configure FTP server
   copy:
@@ -39,7 +47,7 @@
 
 - name: Create root directory structure for FTP server
   file:
-    path: "/tftpboot/{{ item }}"
+    path: "/var/lib/tftpboot/{{ item }}"
     state: directory
     owner: root
     group: root
@@ -54,16 +62,16 @@
 - name: Add pxelinux.0 and isolinux to FTP directory
   shell: |
     set -xe
-    rm /tftpboot/pxelinux.0 || true
-    rm -rf /tftpboot/boot/isolinux || true
-    cp /usr/lib/PXELINUX/pxelinux.0 /tftpboot
-    cp -r /usr/lib/syslinux/modules/bios /tftpboot/boot/isolinux
-    chmod -R +r /tftpboot
+    rm /var/lib/tftpboot/pxelinux.0 || true
+    rm -rf /var/lib/tftpboot/boot/isolinux || true
+    cp /usr/lib/PXELINUX/pxelinux.0 /var/lib/tftpboot
+    cp -r /usr/lib/syslinux/modules/bios /var/lib/tftpboot/boot/isolinux
+    chmod -R +r /var/lib/tftpboot
 
 - name: Set up pxelinux.cfg in FTP directory
   copy:
     src: pxelinux.cfg
-    dest: /tftpboot/pxelinux.cfg/default
+    dest: /var/lib/tftpboot/pxelinux.cfg/default
     owner: root
     group: root
     mode: "0644"
@@ -108,7 +116,15 @@
 - name: Copy Ignition config to FTP directory
   copy:
     src: /tmp/ignition_config.json
-    dest: /tftpboot/pxe-config.ign
+    dest: /var/lib/tftpboot/pxe-config.ign
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Copy Ignition config to HTTP directory
+  copy:
+    src: /tmp/ignition_config.json
+    dest: /var/www/html/pxe-config.ign
     owner: root
     group: root
     mode: "0644"
@@ -117,7 +133,7 @@
   get_url:
     force: yes
     url: "{{ item }}"
-    dest: /tftpboot/
+    dest: /var/lib/tftpboot/
     mode: "0644"
   with_items:
   - "https://stable.release.core-os.net/amd64-usr/current/coreos_production_pxe.vmlinuz"
@@ -125,7 +141,7 @@
 
 - name: Change ownership of all files in the FTP directory to tftp user and group
   file:
-    path: /tftpboot
+    path: /var/lib/tftpboot
     state: directory
     recurse: yes
     owner: tftp
@@ -137,10 +153,24 @@
     rule: allow
     port: tftp
 
-- name: Start services ufw and tftpd-hpa
+- name: Open firewall for DHCP
+  ufw:
+    rule: allow
+    port: '67'
+    proto: udp
+
+- name: Open firewall for HTTP
+  ufw:
+    rule: allow
+    port: '80'
+    proto: tcp
+
+- name: (Re)start services ufw, tftpd-hpa, and isc-dhcp-server
   service:
     name: "{{ item }}"
     state: restarted
   with_items:
     - ufw
     - tftpd-hpa
+    - isc-dhcp-server
+    - apache2

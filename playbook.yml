@@ -1,12 +1,17 @@
 ---
 
-# - hosts: routers
-#   gather_facts: false
-#   roles:
-#     - edgeos
+- hosts: localhost
+  gather_facts: true
+  tasks:
+    - debug:
+        msg: "{{ hostvars['localhost']['ansible_default_ipv4']['address'] }}"
+
+
+- hosts: routers
+  roles:
+    - edgeos
 
 - hosts: localhost
   become: yes
-  gather_facts: true
   roles:
     - pxe-server

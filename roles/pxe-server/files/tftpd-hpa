@@ -2,4 +2,4 @@
 RUN_DAEMON="yes"
 TFTP_USERNAME="tftp"
 TFTP_ADDRESS=":69"
-OPTIONS="-l -s /tftpboot"
+OPTIONS="-l --secure /var/lib/tftpboot"
