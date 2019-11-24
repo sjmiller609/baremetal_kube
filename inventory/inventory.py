@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 '''
 Local network any SSH
 
@@ -7,7 +8,7 @@ and we can connect using either a username/password or a username/SSH key
 then add them to the inventory, grouped by type.
 
 types:
-  kube_nodes
+  container_linux
   edgeos_router
 
 Custom dynamic inventory script for Ansible, in Python.
@@ -35,8 +36,15 @@ class LocalNetworkInventory(object):
         self.inventory = {}
         self.nm = nmap.PortScanner()
 
-        self._discover_inventory()
+        self.hostvars = \
+            {
+                "localhost": {
+                    "ansible_connection": "local",
+                    "ansible_python_interpreter": "/usr/bin/python"
+                }
+            }
 
+        self._discover_inventory()
         print(json.dumps(self.inventory))
 
     def _discover_inventory(self):
@@ -45,32 +53,50 @@ class LocalNetworkInventory(object):
         self._discover_ssh_connect()
         self._build_inventory()
 
+    def _get_motd(self, host, **kwargs):
+        try:
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(host, **kwargs)
+            stdin, stdout, stderr = client.exec_command('cat /etc/motd')
+            return stdout.read().decode('utf-8')
+        except Exception as e:
+            sys.stderr.write(f"{e}")
+        finally:
+            client.close()
+        return ""
+
+    def _detect_os(self, host):
+        motd = self._get_motd(host,
+                              port=22,
+                              username=self.USERNAME,
+                              password=self.PASSWORD)
+        if "edgeos" in motd.lower():
+            return "edgeos"
+        motd = self._get_motd(host,
+                              port=22,
+                              username="core")
+        if "container linux" in motd.lower():
+            return "container_linux"
+        return None
+
     def _discover_ssh_connect(self):
 
         self.routers = []
-        self.nodes = []
+        self.container_linux = []
 
         for host in self.ssh_hosts:
-            try:
-                client = paramiko.SSHClient()
-                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                client.connect(host,
-                               port=22,
-                               username=self.USERNAME,
-                               password=self.PASSWORD)
-                stdin, stdout, stderr = client.exec_command('cat /etc/motd')
-                motd = stdout.read().decode('utf-8')
-
-                if "edgeos" in motd.lower():
-                    sys.stderr.write(f"Detected EdgeOS on host: {host}\n")
-                    self.routers.append(host)
-                else:
-                    sys.stderr.write(motd)
-
-            except Exception:
-                pass
-            finally:
-                client.close()
+            os = self._detect_os(host)
+            if os == "edgeos":
+                sys.stderr.write(f"Detected EdgeOS on host: {host}\n")
+                self.routers.append(host)
+            elif os == "container_linux":
+                sys.stderr.write(f"Detected Container Linux on host: {host}\n")
+                hostname = f"node{len(self.container_linux)}"
+                self.container_linux.append(hostname)
+                self.hostvars[hostname] = {"ansible_host":host}
+            else:
+                sys.stderr.write(f"Did not detect Container Linux or EdgeOS on host: {host}\n")
 
         if len(self.routers) > 1:
             raise Exception(
@@ -129,7 +155,7 @@ class LocalNetworkInventory(object):
     def _build_inventory(self):
         self.inventory = {
             'all': {
-                'children': ['routers', 'kube_nodes', 'pxe_servers']
+                'children': ['routers', 'container_linux', 'pxe_servers']
             },
             "routers": {
                 "hosts": self.routers,
@@ -140,19 +166,33 @@ class LocalNetworkInventory(object):
                     "ansible_network_os": "edgeos"
                 }
             },
-            "kube_nodes": {
-                "hosts": self.routers
+            "container_linux": {
+                "hosts": self.container_linux,
+                "vars": {
+                    "ansible_user": "core",
+                    "ansible_ssh_private_key_file": "~/.ssh/id_rsa",
+                    "ansible_python_interpreter": "/opt/bin/python",
+                    "bin_dir": "/opt/bin",
+                    "ansible_become": "yes"
+                }
             },
             "pxe_server": {
                 "hosts": ["localhost"],
             },
+            "kube-node": {
+                'children': ['container_linux']
+            },
+            "kube-master": {
+                'children': ['container_linux']
+            },
+            "etcd": {
+                'children': ['container_linux']
+            },
+            "k8s-cluster": {
+                'children': ['kube-node','kube-master','calico-rr']
+            },
             "_meta": {
-                "hostvars": {
-                    "localhost": {
-                        "ansible_connection": "local",
-                        "ansible_python_interpreter": "/usr/bin/python"
-                    }
-                }
+                "hostvars": self.hostvars
             }
         }
 

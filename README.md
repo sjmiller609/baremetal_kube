@@ -123,3 +123,33 @@ Services deployed on the command center to enable network booting:
 I chose [Kubespray](https://github.com/kubernetes-sigs/kubespray) to deploy Kubernetes because it is simple, customizable, and maintained. It seems to me the most stable and supported choice available as of 2019. During experimentation, I had success with deploying kuberentes on a single node, sharing the node as both a worker and the control plane.
 
 As a part of host discovery, the Ansible dynamic inventory performs a network scan to detect nodes that have been booted into Container Linux. These nodes will be targeted for running both the Kubernetes control plane, and the worker nodes.
+
+```
+export KUBECONFIG=./inventory/artifacts/admin.conf
+kubectl get nodes
+NAME    STATUS   ROLES    AGE   VERSION
+node0   Ready    master   51m   v1.16.2
+```
+
+```
+$ kubectl get pods -n kube-system
+
+NAME                                       READY   STATUS    RESTARTS   AGE
+calico-kube-controllers-675cd8cb45-67zlv   1/1     Running   0          62m
+calico-node-szmsz                          1/1     Running   1          62m
+coredns-58687784f9-2hgq9                   0/1     Pending   0          13m
+coredns-58687784f9-j6cjg                   1/1     Running   0          13m
+dns-autoscaler-79599df498-77hkl            1/1     Running   0          61m
+kube-apiserver-node0                       1/1     Running   0          62m
+kube-controller-manager-node0              1/1     Running   0          62m
+kube-proxy-tcccl                           1/1     Running   0          14m
+kube-scheduler-node0                       1/1     Running   0          62m
+kubernetes-dashboard-556b9ff8f8-k4pxq      1/1     Running   0          61m
+nodelocaldns-fnn74                         1/1     Running   0          61m
+
+$ kubectl describe pods -n kube-system coredns-58687784f9-2hgq9 | tail -n 1
+
+  Warning  FailedScheduling  <unknown>  default-scheduler  0/1 nodes are available: 1 node(s) didn't match pod affinity/anti-affinity, 1 node(s) didn't satisfy existing pods anti-affinity rules.
+```
+
+That makes sense because there is only 1 node.

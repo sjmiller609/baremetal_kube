@@ -14,3 +14,6 @@
   become: yes
   roles:
     - pxe-server
+
+- name: Include Kubespray tasks
+  include: kubespray/cluster.yml
