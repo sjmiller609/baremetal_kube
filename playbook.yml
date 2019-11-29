@@ -15,5 +15,9 @@
   roles:
     - pxe-server
 
+
 - name: Include Kubespray tasks
-  include: kubespray/cluster.yml
+  import_playbook: kubespray/cluster.yml
+
+# - name: Install MetalLB
+#   import_playbook: kubespray/contrib/metallb/metallb.yml

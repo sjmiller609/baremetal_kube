@@ -60,6 +60,7 @@
 # not work when not using localhost target.
 # also, this is much faster
 - name: Add pxelinux.0 and isolinux to FTP directory
+  changed_when: true
   shell: |
     set -xe
     rm /var/lib/tftpboot/pxelinux.0 || true
@@ -76,7 +77,8 @@
     group: root
     mode: "0644"
 
-- set_fact:
+- name: Look up SSH public key
+  set_fact:
     ssh_pub_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
 
 - name: Create container linux configuration file locally
@@ -93,6 +95,7 @@
     state: present
 
 - name: Install Container Linux configuration transpiler locally and transpile configuration to Ignition
+  changed_when: true
   delegate_to: localhost
   shell: |
     set -xe
@@ -146,7 +149,7 @@
     recurse: yes
     owner: tftp
     group: tftp
-    mode: "744"
+    mode: "0744"
 
 - name: Open firewall for FTP
   ufw:
