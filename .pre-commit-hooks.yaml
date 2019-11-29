@@ -1,0 +1,5 @@
+-   id: ansible-run
+    name: Ansible playbook
+    description: Ensure ansible playbook run works
+    entry: init
+    language: script
