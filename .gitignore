@@ -103,3 +103,4 @@ ENV/
 !inventory/inventory.py
 !inventory/group_vars/*
 !inventory/group_vars
+*.retry

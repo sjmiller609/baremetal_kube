@@ -1,11 +1,5 @@
 ---
 
-- hosts: localhost
-  gather_facts: true
-  tasks:
-    - debug:
-        msg: "{{ hostvars['localhost']['ansible_default_ipv4']['address'] }}"
-
 - hosts: routers
   roles:
     - edgeos
@@ -14,7 +8,6 @@
   become: yes
   roles:
     - pxe-server
-
 
 - name: Include Kubespray tasks
   import_playbook: kubespray/cluster.yml

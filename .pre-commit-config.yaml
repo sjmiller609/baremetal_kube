@@ -88,6 +88,6 @@ repos:
     - id: ansible-lint
       files: \.(yaml|yml)$
 # - repo: git@github.com:sjmiller609/baremetal_kube.git
-#   rev: cbf9c274147efd9492875f9653eae672983a2491
+#   rev: 4e29325fd04acd1ea7219198a77771b5c1afa452
 #   hooks:
 #     - id: ansible-run

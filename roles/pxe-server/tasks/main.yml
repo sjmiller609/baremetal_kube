@@ -70,8 +70,8 @@
     chmod -R +r /var/lib/tftpboot
 
 - name: Set up pxelinux.cfg in FTP directory
-  copy:
-    src: pxelinux.cfg
+  template:
+    src: pxelinux.cfg.j2
     dest: /var/lib/tftpboot/pxelinux.cfg/default
     owner: root
     group: root
