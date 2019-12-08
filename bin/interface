@@ -1,0 +1,3 @@
+sudo ifconfig enp0s25 192.168.2.100
+sudo ifconfig enp0s25 netmask 255.255.255.0
+sudo ip route add default via 192.168.2.1 dev enp0s25

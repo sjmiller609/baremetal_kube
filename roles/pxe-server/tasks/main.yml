@@ -29,9 +29,12 @@
       - initramfs-tools
     state: present
 
+- debug:
+    msg: "{{ groups['container_linux'] | length }}"
+
 - name: Configure DHCP server
-  copy:
-    src: dhcpd.conf
+  template:
+    src: dhcpd.conf.j2
     dest: /etc/dhcp/dhcpd.conf
     owner: root
     group: root
@@ -168,12 +171,20 @@
     port: '80'
     proto: tcp
 
+- name: Open firewall for SSH
+  ufw:
+    rule: allow
+    port: '22'
+    proto: tcp
+
 - name: (Re)start services ufw, tftpd-hpa, and isc-dhcp-server
   service:
     name: "{{ item }}"
     state: restarted
+    # ensure means start on boot
+    enabled: yes
   with_items:
-    - ufw
+    # - ufw
     - tftpd-hpa
     - isc-dhcp-server
     - apache2

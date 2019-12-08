@@ -1,0 +1,9 @@
+#!/bin/bash
+LOCALHOSTIP=$(ifconfig | grep -A1 enp0s25 | tail -n1 | awk '{ print $2 }')
+IPS=$(nmap -oG - -p22 192.168.2.0/24 | grep open | grep -v '192.168.2.1\s' | grep -v $LOCALHOSTIP | awk '{ print $2 }')
+for node in $IPS; do
+  hostname=$(ssh -i ~/.ssh/id_rsa core@${node} hostname)
+  echo "${hostname} (${node}):"
+  ssh -i ~/.ssh/id_rsa core@${node} $@
+  echo ""
+done

@@ -23,9 +23,9 @@ bin_dir: /usr/local/bin
 #   port: 1234
 
 ## Internal loadbalancers for apiservers
-# loadbalancer_apiserver_localhost: true
+loadbalancer_apiserver_localhost: true
 # valid options are "nginx" or "haproxy"
-# loadbalancer_apiserver_type: nginx # valid values "nginx" or "haproxy"
+loadbalancer_apiserver_type: nginx # valid values "nginx" or "haproxy"
 
 ## Local loadbalancer should use this port
 ## And must be set port 6443
@@ -80,7 +80,7 @@ upstream_dns_servers:
 # ignore_assert_errors: false
 
 ## The read-only port for the Kubelet to serve on with no authentication/authorization. Uncomment to enable.
-# kube_read_only_port: 10255
+# kube_read_only_port: 10250
 
 ## Set true to download and cache container
 # download_container: true

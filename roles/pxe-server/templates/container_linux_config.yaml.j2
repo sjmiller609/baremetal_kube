@@ -2,20 +2,22 @@ systemd:
   units:
     - name: etcd2.service
       enable: true
+
 passwd:
   users:
     - name: core
       ssh_authorized_keys:
         - {{ ssh_pub_key }}
-# storage:
-#   disks:
-#   - device: /dev/sda
-#     wipe_table: true
-#     partitions:
-#     - label: ROOT
-#   filesystems:
-#   - mount:
-#       device: /dev/disk/by-partlabel/ROOT
-#       format: ext4
-#       wipe_filesystem: true
-#       label: ROOT
+
+storage:
+  disks:
+  - device: /dev/sda
+    wipe_table: true
+    partitions:
+    - label: ROOT
+  filesystems:
+  - mount:
+      device: /dev/disk/by-partlabel/ROOT
+      format: ext4
+      wipe_filesystem: true
+      label: ROOT

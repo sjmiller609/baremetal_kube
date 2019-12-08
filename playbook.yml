@@ -1,15 +1,62 @@
----
-
 - hosts: routers
+  gather_facts: false
   roles:
     - edgeos
+  tags:
+    - reset
+
+- hosts: all
+  gather_facts: no
+  tasks:
+    # used to configure PXE booting
+    - name: Fetch the MAC without a requirement on Python
+      raw: ifconfig | grep -A2 192.168.2 | tail -n1 | awk '{ print $2 }'
+      changed_when: false
+      ignore_errors: yes
+      register: mac
+    - name: Save MAC address in variable
+      set_fact:
+        mac: "{{ mac.stdout | trim }}"
+  tags:
+    - reset
 
 - hosts: localhost
   become: yes
   roles:
     - pxe-server
+  tags:
+    - reset
+
+- hosts: container_linux
+  gather_facts: no
+  tags:
+    - reset
+  tasks:
+    - name: Force binaries directory for Container Linux by CoreOS
+      set_fact:
+        bin_dir: "/opt/bin"
+    - name: Install Python if necessary
+      raw: |
+        #!/bin/bash
+        set -e
+        BINDIR="/opt/bin"
+        mkdir -p $BINDIR
+        cd $BINDIR
+        if [[ -e $BINDIR/.bootstrapped ]]; then
+          exit 0
+          fi
+          PYPY_VERSION=7.0.0
+          wget -O - https://bitbucket.org/squeaky/portable-pypy/downloads/pypy3.5-$PYPY_VERSION-linux_x86_64-portable.tar.bz2 | tar -xjf -
+          mv -n pypy3.5-$PYPY_VERSION-linux_x86_64-portable pypy3
+          ln -s ./pypy3/bin/pypy3 python
+          $BINDIR/python --version
+          touch $BINDIR/.bootstrapped
+    - name: PXE boot into fresh Container Linux
+      reboot: {}
 
 - name: Include Kubespray tasks
+  tags:
+    - reset
   import_playbook: kubespray/cluster.yml
 
 # - name: Install MetalLB

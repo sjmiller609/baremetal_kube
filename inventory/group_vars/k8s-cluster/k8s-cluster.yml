@@ -187,7 +187,7 @@ podsecuritypolicy_enabled: false
 # Make a copy of kubeconfig on the host that runs Ansible in {{ inventory_dir }}/artifacts
 # kubeconfig_localhost: false
 # Download kubectl onto the host that runs Ansible in {{ bin_dir }}
-kubectl_localhost: true
+kubectl_localhost: false
 kubeconfig_localhost: true
 
 
@@ -208,7 +208,7 @@ kubeconfig_localhost: true
 # system_master_cpu_reserved: 250m
 
 # An alternative flexvolume plugin directory
-# kubelet_flexvolumes_plugins_dir: /usr/libexec/kubernetes/kubelet-plugins/volume/exec
+kubelet_flexvolumes_plugins_dir: /var/lib/kubelet/volume-plugins
 
 ## Supplementary addresses that can be added in kubernetes ssl keys.
 ## That can be useful for example to setup a keepalived virtual IP

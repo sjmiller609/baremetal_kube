@@ -40,7 +40,9 @@ class LocalNetworkInventory(object):
             {
                 'localhost': {
                     'ansible_connection': 'local',
-                    'ansible_python_interpreter': '/usr/bin/python'
+                    'ansible_python_interpreter': '/usr/bin/python',
+                    'ansible_become': 'yes',
+                    'bin_dir': '/opt/bin'
                 }
             }
 
@@ -52,6 +54,17 @@ class LocalNetworkInventory(object):
         self._discover_ssh_open()
         self._discover_ssh_connect()
         self._build_inventory()
+        # self._sort_invetory()
+
+    def _get_mac_from_ip(host):
+        return hash(str(self.nm[host]))
+
+    def _sort_inventory(self):
+        for key in self.inventory:
+            if self.inventory[key].get('hosts'):
+                self.inventoy[key]['hosts'].sort(
+                    key=lambda host: self._get_mac_from_ip(host))
+
 
     def _get_motd(self, host, **kwargs):
         try:
@@ -115,7 +128,7 @@ class LocalNetworkInventory(object):
 
         for cidr in self.cidrs:
             sys.stderr.write(f'Scanning port 22 in network {cidr}\n')
-            self.nm.scan(hosts=cidr, ports='22', arguments='-n', sudo=False)
+            self.nm.scan(hosts=cidr, ports='22', arguments='-n')
 
         self.ssh_hosts = []
 
@@ -163,7 +176,7 @@ class LocalNetworkInventory(object):
     def _build_inventory(self):
         self.inventory = {
             'all': {
-                'children': ['routers', 'container_linux', 'pxe_servers']
+                'children': ['routers', 'container_linux', 'pxe_servers','k8s-cluster']
             },
             'routers': {
                 'hosts': self.routers,
@@ -176,6 +189,9 @@ class LocalNetworkInventory(object):
             },
             'pxe_server': {
                 'hosts': ['localhost'],
+            },
+            'container_linux': {
+                'hosts': self.container_linux,
             },
             'etcd': {
             },
@@ -195,6 +211,7 @@ class LocalNetworkInventory(object):
         self.inventory['kube-master']['hosts'] = \
             self.container_linux[:3]
         num_hosts = len(self.container_linux)
+
         if not num_hosts % 2 and num_hosts < 7:
             self.inventory['etcd']['hosts'] = \
                 self.container_linux[1:7]
