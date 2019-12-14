@@ -153,3 +153,59 @@ $ kubectl describe pods -n kube-system coredns-58687784f9-2hgq9 | tail -n 1
 ```
 
 That makes sense because there is only 1 node.
+
+### experience with this plan
+
+This when pretty well. I installed rook-ceph for persistent storage. In general, I have found Kubespray to be a bit slower to provision than I would hope. The focus is on safety and stability. It seems to me like all the extra time to install and configure each component (etcd, kube, CNI, storage, and so on..) could be avoided by making use of something that was already pre-baked. Kubespray was the first project for deploying kubernetes, and I think that the many options that have become built in are very useful.
+
+I want to try out something that might enable a rapid test cycle for me. I am much more flexible on the kube environment than many Kubespray users might be, so I want to try something that will be faster and easier. Also, I want ARM support out of the box. There is a brand-new project called k3s by Rancher that is promising.
+
+The thing I love about my current set up is that I can simply reboot all of my computers in order to start over with a fresh SSH-ready pool. This is enabled by Container Linux's very conveinient config. I tried to run k3s on container linux, but it seems there are a few bugs out of the box. The most tested target OS is Ubuntu. Since this is also the OS that I am most familiar with, I ought to refactor my PXE booting strategy to allow multiple distributions, including Ubuntu and CoreOS. It's too bad that Ubuntu preseed is not as nice as the container linux config, but let's give it a shot.
+
+# PXE booting ubuntu
+
+I already went through the process of setting up the DHCP, TFTP, and HTTP services required to get PXE booting working for container linux. I became aware of a few things about network booting in the process.
+- BIOS is different than UEFI when it comes to net booting
+- It's easier to coordinate the DHCP service into your PXE service if you can
+- how to do DHCP config
+
+## Let's choose a tool for PXE booting
+
+So far, I was manually setting up the services required for net boot. I would like something easier. Ideally with the following features:
+- manage DHCP conf to statically assign IPs
+- find the right kernel, initrd for a distribution / target architecture (maybe automatically update them in the in the TFTP directory)
+- handle both kinds of PXE booting and the weird edge cases
+
+Initially, I was thinking Cobbler, but I ought to assess other options before starting.
+
+### Matchbox
+
+- Apache 2
+- CoreOS project
+- Go lang
+- Coupled with CoreOS?
+- Terraform provider!
+- [Installation](https://coreos.com/matchbox/docs/latest/deployment.html) looks easy
+- There is a nice diagram [here](https://coreos.com/matchbox/docs/latest/img/network-setup-flow.png) that I think is mostly applicable to generic PXE, not just matchbox. Helpful for conceptualizing what we need here.
+- Limited documentation for anything besides the CoreOS path
+
+### Foreman
+
+- Integrated with configuration management
+- Lots of requirements for the server
+- Way more features than I intend to use
+
+### MaaS
+
+- Looks like it requires BMC / remote hardware management capabilities. This is in order to support cloud-like features of turning off the hardware, but my intention is to just reboot hosts in order to have them re-provisioned.
+
+### FAI
+
+- Getting started is advertising exactly what I want, and nothing else
+- The most recent version was published a couple of months ago - sep '19
+
+### Cobbler
+
+I'm going to go with Cobbler for now since it seems like it's a bit more ironed out and is not biased or otherwise incentivized to support one particular OS.
+
+One immediate downside is there is not a pacakge ready to go for Ubuntu 18.04.

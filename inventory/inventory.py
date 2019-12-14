@@ -128,7 +128,7 @@ class LocalNetworkInventory(object):
 
         for cidr in self.cidrs:
             sys.stderr.write(f'Scanning port 22 in network {cidr}\n')
-            self.nm.scan(hosts=cidr, ports='22', arguments='-n')
+            self.nm.scan(hosts=cidr, ports='22', arguments='-n -Pn')
 
         self.ssh_hosts = []
 
