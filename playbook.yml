@@ -1,10 +1,13 @@
+# Configure an EdgeOS router connected on one side to
+# the internet and on the other to a private network.
+# all Kubernetes targets should be in the network.
 - hosts: routers
   gather_facts: false
   roles:
     - edgeos
-  tags:
-    - reset
 
+# Gather MAC addresses of targets collected by inventory
+# in order to configure PXE booting of targets.
 - hosts: all
   gather_facts: no
   tasks:
@@ -17,127 +20,81 @@
     - name: Save MAC address in variable
       set_fact:
         mac: "{{ mac.stdout | trim }}"
-  tags:
-    - reset
 
+# Set up a PXE server
+# so that by restarting computers in the network,
+# we can reinstall operating systems.
 - hosts: localhost
   become: yes
   roles:
     - pxe-server
-  tags:
-    - reset
 
+# Targets should have their NIC first in their
+# boot order.
 - hosts: container_linux
   gather_facts: no
-  tags:
-    - reset
-  tasks:
-    - name: Force binaries directory for Container Linux by CoreOS
-      set_fact:
-        bin_dir: "/opt/bin"
-    - name: Install Python if necessary
-      raw: |
-        #!/bin/bash
-        set -e
-        BINDIR="/opt/bin"
-        mkdir -p $BINDIR
-        cd $BINDIR
-        if [[ -e $BINDIR/.bootstrapped ]]; then
-          exit 0
-        fi
-        PYPY_VERSION=7.0.0
-        wget -O - https://bitbucket.org/squeaky/portable-pypy/downloads/pypy3.5-$PYPY_VERSION-linux_x86_64-portable.tar.bz2 | tar -xjf -
-        mv -n pypy3.5-$PYPY_VERSION-linux_x86_64-portable pypy3
-        ln -s ./pypy3/bin/pypy3 python
-        $BINDIR/python --version
-        touch $BINDIR/.bootstrapped
-    - name: PXE boot into fresh Container Linux
-      reboot: {}
-    - name: Install Python if necessary
-      raw: |
-        #!/bin/bash
-        set -e
-        BINDIR="/opt/bin"
-        mkdir -p $BINDIR
-        cd $BINDIR
-        if [[ -e $BINDIR/.bootstrapped ]]; then
-          exit 0
-        fi
-        PYPY_VERSION=7.0.0
-        wget -O - https://bitbucket.org/squeaky/portable-pypy/downloads/pypy3.5-$PYPY_VERSION-linux_x86_64-portable.tar.bz2 | tar -xjf -
-        mv -n pypy3.5-$PYPY_VERSION-linux_x86_64-portable pypy3
-        ln -s ./pypy3/bin/pypy3 python
-        $BINDIR/python --version
-        touch $BINDIR/.bootstrapped
-    # https://github.com/rancher/k3s/issues/163#issuecomment-469882207
-    - name: Set hostname
-      hostname:
-        name: "{{ inventory_hostname }}"
-    - name: Add hostname to /etc/hosts
-      lineinfile:
-        dest: /etc/hosts
-        regexp: '^127\.0\.0\.1[ \t]+localhost'
-        line: '127.0.0.1 localhost {{ inventory_hostname }}'
-        state: present
+  roles:
+    - container-linux-reboot
 
+# Deploy the first master
 - name: 'Deploy K3s: bootstrap first master'
   hosts: container_linux[0]
   gather_facts: no
   tasks:
-    - name: Deploy first master
-      raw: |
-        if [ ! "$(docker ps -a | grep k3s-server)" ]; then \
-          docker run \
-          --env K3S_TOKEN=testsecret \
-          --rm \
-          --tmpfs /run \
-          --tmpfs /var/run \
-          --network host \
-          -d \
-          --privileged \
-          --name k3s-server \
-          rancher/k3s:v1.0.0 \
-          server
-        fi
-    - name: Wait for cluster to initialize
-      raw: |
-        sleep 60
+    - name: Deploy master
+      docker_container:
+        name: k3s-server
+        env:
+          K3S_TOKEN: "{{ lookup('password', '~/.kube/k3s_token length=64 chars=digits,ascii_letters') }}"
+        mounts:
+          - target: /run
+            type: tmpfs
+          - target: /var/run
+            type: tmpfs
+        privileged: yes
+        image: rancher/k3s:v1.0.0
+        network_mode: host
+        command: server
     - name: Get the kubeconfig
-      raw: |
+      command: |
         docker exec -it k3s-server cat /etc/rancher/k3s/k3s.yaml
+      retries: 15
+      delay: 2
+      changed_when: no
       register: kubeconfig
+      until: kubeconfig.rc == 0
     - name: Write the kubeconfig to the localhost
       become: yes
       copy:
         content: "{{ kubeconfig.stdout }}"
         dest: /tmp/kubeconfig
       delegate_to: localhost
+    - name: Overwrite the IP address in the Kubeconfig file
+      become: yes
+      lineinfile:
+        dest: /tmp/kubeconfig
+        regexp: '^\s*server.*'
+        line: "    server: https://{{ hostvars[groups['container_linux'][0]]['ansible_host'] }}:6443"
+        state: present
+      delegate_to: localhost
 
-
-- name: 'Deploy K3s: join workers'
+# Join agents
+- name: 'Deploy K3s: join agents'
   hosts: container_linux[1:]
   gather_facts: no
   tasks:
-   - name: Join worker nodes
-     raw: |
-       if [ ! "$(docker ps -a | grep k3s-agent)" ]; then \
-         docker run \
-         --env K3S_TOKEN=testsecret \
-         --env K3S_URL=https://{{ hostvars[groups['container_linux'][0]]['ansible_host'] }}:6443 \
-         --tmpfs /run \
-         --tmpfs /var/run \
-         --network host \
-         -d \
-         --privileged \
-         --name k3s-agent \
-         rancher/k3s:v1.0.0 \
-         agent
-       fi
-
-# - name: Include Kubespray tasks
-#   tags:
-#     - reset
-#   import_playbook: kubespray/cluster.yml
-
-# - name: Install MetalLB
-#   import_playbook: kubespray/contrib/metallb/metallb.yml
+    - name: Join k3s agents
+      docker_container:
+        name: k3s-server
+        env:
+          K3S_TOKEN: "{{ lookup('password', '~/.kube/k3s_token length=64 chars=digits,ascii_letters') }}"
+          K3S_URL: "https://{{ hostvars[groups['container_linux'][0]]['ansible_host'] }}:6443"
+        mounts:
+          - target: /run
+            type: tmpfs
+          - target: /var/run
+            type: tmpfs
+        privileged: yes
+        image: rancher/k3s:v1.0.0
+        network_mode: host
+        command: agent
