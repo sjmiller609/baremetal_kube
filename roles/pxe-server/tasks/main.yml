@@ -29,9 +29,6 @@
       - initramfs-tools
     state: present
 
-- debug:
-    msg: "{{ groups['container_linux'] | length }}"
-
 - name: Configure DHCP server
   template:
     src: dhcpd.conf.j2

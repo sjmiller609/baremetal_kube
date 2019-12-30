@@ -1,0 +1,112 @@
+---
+
+- name: Install Python if necessary
+  raw: |
+    #!/bin/bash
+    set -e
+    BINDIR="/opt/bin"
+    mkdir -p $BINDIR
+    cd $BINDIR
+    if [[ -e $BINDIR/.bootstrapped ]]; then
+      exit 0
+    fi
+    PYPY_VERSION=7.0.0
+    wget -O - https://bitbucket.org/squeaky/portable-pypy/downloads/pypy3.5-$PYPY_VERSION-linux_x86_64-portable.tar.bz2 | tar -xjf -
+    mv -n pypy3.5-$PYPY_VERSION-linux_x86_64-portable pypy3
+    ln -s ./pypy3/bin/pypy3 python
+    $BINDIR/python --version
+    touch $BINDIR/.bootstrapped
+
+- name: Gather facts
+  setup: {}
+
+# https://github.com/rancher/k3s/issues/163#issuecomment-469882207
+- name: Set hostname
+  hostname:
+    use: generic
+    name: "{{ inventory_hostname }}"
+
+- name: Add hostname to /etc/hosts
+  lineinfile:
+    dest: /etc/hosts
+    regexp: '^127\.0\.0\.1[ \t]+localhost'
+    line: '127.0.0.1 localhost {{ inventory_hostname }}'
+    state: present
+
+# We will use docker_container ansible module for
+# installing K3s in a container on Container Linux
+- name: Install pip
+  become: yes
+  raw: |
+    #!/bin/bash
+    set -e
+    cd /opt
+    curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+    /opt/bin/python ./get-pip.py
+    cp /opt/bin/pypy3/bin/pip /opt/bin/
+    cp /opt/bin/pypy3/bin/pip3 /opt/bin/
+
+- name: Install docker-py
+  become: yes
+  pip:
+    name: docker
+
+- name: Create required directories
+  become: yes
+  file:
+    state: directory
+    path: "{{ item }}"
+  with_items:
+    # Persistent directory for Rook
+    - /var/lib/rook
+    # Persistent directory for kubelet
+    - /var/lib/kubelet
+
+# Mounts for K3s container
+- name: Initialize storage facts
+  set_fact:
+    mounts:
+      - target: /run
+        type: tmpfs
+      - target: /var/run
+        type: tmpfs
+      - target: /var/lib/kubelet
+        source: /var/lib/kubelet
+        # https://github.com/rancher/rancher/issues/12205
+        type: bind
+        propagation: shared
+      - target: /var/lib/rook
+        source: /var/lib/rook
+        type: bind
+        propagation: shared
+      - target: /var/run/docker.sock
+        source: /var/run/docker.sock
+        type: bind
+        propagation: shared
+    devices: []
+
+# Bind all storage besides /dev/sda
+- name: Select devices to bind
+  set_fact:
+    devices: "{{ devices + [ '/dev/' + item + ':/dev/' + item + ':rwm' ] }}"
+  when: item is regex("^sd[^a]$")
+  ignore_errors: yes
+  with_items: "{{ ansible_facts.devices }}"
+
+- debug:
+    msg: "{{ devices }}"
+- debug:
+    msg: "{{ mounts }}"
+
+- name: Copy Dockerfile
+  copy:
+    src: Dockerfile
+    dest: /tmp/Dockerfile
+
+- name: Build K3s image
+  docker_image:
+    name: k3s
+    build:
+      path: /tmp
+      pull: yes
+    source: build

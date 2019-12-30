@@ -19,6 +19,7 @@ subnet 192.168.2.0 netmask 255.255.255.0 {
     hardware ethernet {{ hostvars['localhost'].ansible_default_ipv4.macaddress }};
     fixed-address 192.168.2.100;
   }
+{% if 'container_linux' in groups %}
 {% for host in groups['container_linux'] %}
 
   host node{{ loop.index }} {
@@ -27,4 +28,5 @@ subnet 192.168.2.0 netmask 255.255.255.0 {
     filename "/pxelinux.0";
   }
 {% endfor %}
+{% endif %}
 }

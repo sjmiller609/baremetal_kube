@@ -1,10 +1,10 @@
 # Configure an EdgeOS router connected on one side to
 # the internet and on the other to a private network.
 # all Kubernetes targets should be in the network.
-- hosts: routers
-  gather_facts: false
-  roles:
-    - edgeos
+# - hosts: routers
+#   gather_facts: false
+#   roles:
+#     - edgeos
 
 # Gather MAC addresses of targets collected by inventory
 # in order to configure PXE booting of targets.
@@ -26,18 +26,27 @@
 # we can reinstall operating systems.
 - hosts: localhost
   become: yes
+  vars:
+    nfs_exports:
+      - "/data/nfs/read-only *(ro,sync,no_root_squash)"
+      - "/data/nfs/read-only/movies *(ro,sync,no_root_squash)"
+      - "/data/nfs/read-only/music *(ro,sync,no_root_squash)"
+      - "/data/nfs/read-write *(rw,sync,no_root_squash)"
   roles:
-    - pxe-server
+   - geerlingguy.nfs
+   - pxe-server
 
 # Targets should have their NIC first in their
 # boot order.
-- hosts: container_linux
+- name: Reset nodes
+  hosts: container_linux
   gather_facts: no
   roles:
     - container-linux-reboot
+    - container-linux-setup-for-k3s
 
 # Deploy the first master
-- name: 'Deploy K3s: bootstrap first master'
+- name: K3s server
   hosts: container_linux[0]
   gather_facts: no
   tasks:
@@ -46,15 +55,14 @@
         name: k3s-server
         env:
           K3S_TOKEN: "{{ lookup('password', '~/.kube/k3s_token length=64 chars=digits,ascii_letters') }}"
-        mounts:
-          - target: /run
-            type: tmpfs
-          - target: /var/run
-            type: tmpfs
+        mounts: "{{ mounts }}"
+        devices: "{{ devices }}"
         privileged: yes
-        image: rancher/k3s:v1.0.0
+        pull: no
+        image: k3s
         network_mode: host
         command: server
+
     - name: Get the kubeconfig
       command: |
         docker exec -it k3s-server cat /etc/rancher/k3s/k3s.yaml
@@ -63,12 +71,14 @@
       changed_when: no
       register: kubeconfig
       until: kubeconfig.rc == 0
+
     - name: Write the kubeconfig to the localhost
       become: yes
       copy:
         content: "{{ kubeconfig.stdout }}"
         dest: /tmp/kubeconfig
       delegate_to: localhost
+
     - name: Overwrite the IP address in the Kubeconfig file
       become: yes
       lineinfile:
@@ -79,7 +89,7 @@
       delegate_to: localhost
 
 # Join agents
-- name: 'Deploy K3s: join agents'
+- name: K3s agents
   hosts: container_linux[1:]
   gather_facts: no
   tasks:
@@ -89,12 +99,10 @@
         env:
           K3S_TOKEN: "{{ lookup('password', '~/.kube/k3s_token length=64 chars=digits,ascii_letters') }}"
           K3S_URL: "https://{{ hostvars[groups['container_linux'][0]]['ansible_host'] }}:6443"
-        mounts:
-          - target: /run
-            type: tmpfs
-          - target: /var/run
-            type: tmpfs
+        mounts: "{{ mounts }}"
+        devices: "{{ devices }}"
         privileged: yes
-        image: rancher/k3s:v1.0.0
+        image: k3s
+        pull: no
         network_mode: host
         command: agent

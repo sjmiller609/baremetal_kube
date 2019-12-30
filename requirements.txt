@@ -1,5 +1,5 @@
-python-nmap==0.6.1
-paramiko==2.6.0
-ansible==2.7.8
-netifaces==0.10.9
+ansible==2.9.2
 netaddr==0.7.19
+netifaces==0.10.9
+paramiko==2.6.0
+python-nmap==0.6.1
