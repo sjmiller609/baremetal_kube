@@ -10,6 +10,8 @@ Features:
 
 One server runs automation to reinstall nodes' operating systems and install Kubernetes. This server also provides persistent storage to Kubernetes such that deleting the cluster does not lose your data. The automation is designed to destroy the cluster and re-create it from scratch each time, ensuring it's easy to fix. This was set up with the Kubernetes developer or tinkerer in mind - ease of use and minimal complexity is preferred.
 
+![In this demo, I redeploy kubernetes, then launch an app](images/home_datacenter.gif)
+
 ## Prerequisites
 
 - One EdgeOS router
@@ -38,7 +40,7 @@ Example:
 - Connect all computers to the same switch (ethernet), including the machine you installed Ubuntu on
 - Connect the switch to the EdgeOS router on eth1
 - Unplug your wifi router from your modem
-- Connect the EdgeOS router's eth2 to your moden
+- Connect the EdgeOS router's eth2 to your modem
 - Connect the EdgeOS router's eth0 to your home wifi (optional to restore home network)
 - For all computers other than the one you installed Ubuntu on, configure the network as first in the boot order
 
