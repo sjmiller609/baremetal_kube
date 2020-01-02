@@ -35,7 +35,7 @@
   roles:
    - geerlingguy.nfs
    - pxe-server
-
+#
 # Targets should have their NIC first in their
 # boot order.
 - name: Reset nodes
@@ -46,11 +46,11 @@
     - container-linux-setup-for-k3s
 
 # Deploy the first master
-- name: K3s server
+- name: k3s server
   hosts: container_linux[0]
   gather_facts: no
   tasks:
-    - name: Deploy master
+    - name: Deploy first master
       docker_container:
         name: k3s-server
         env:
@@ -61,7 +61,8 @@
         pull: no
         image: k3s
         network_mode: host
-        command: server
+        command: server --cluster-init
+        restart_policy: always
 
     - name: Get the kubeconfig
       command: |
@@ -88,9 +89,27 @@
         state: present
       delegate_to: localhost
 
-# Join agents
-- name: K3s agents
-  hosts: container_linux[1:]
+- name: k3s masters
+  hosts: container_linux[1:7]
+  gather_facts: no
+  tasks:
+    - name: Join remaining masters
+      docker_container:
+        name: k3s-server
+        env:
+          K3S_TOKEN: "{{ lookup('password', '~/.kube/k3s_token length=64 chars=digits,ascii_letters') }}"
+          K3S_URL: "https://{{ hostvars[groups['container_linux'][0]]['ansible_host'] }}:6443"
+        mounts: "{{ mounts }}"
+        devices: "{{ devices }}"
+        privileged: yes
+        image: k3s
+        pull: no
+        network_mode: host
+        command: server
+        restart_policy: always
+
+- name: k3s agents
+  hosts: container_linux[7:]
   gather_facts: no
   tasks:
     - name: Join k3s agents
@@ -106,3 +125,4 @@
         pull: no
         network_mode: host
         command: agent
+        restart_policy: always
