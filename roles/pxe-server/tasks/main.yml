@@ -70,22 +70,52 @@
     chmod -R +r /var/lib/tftpboot
 
 - name: Set up pxelinux.cfg in FTP directory
+  when: "'container_linux' in groups"
   template:
     src: pxelinux.cfg.j2
-    dest: /var/lib/tftpboot/pxelinux.cfg/default
+    dest: "/var/lib/tftpboot/pxelinux.cfg/{{ hostvars[item].mac | replace(':', '-') | lower }}"
     owner: root
     group: root
     mode: "0644"
+  with_items: "{{ groups['container_linux'] | map('extract', hostvars, ['inventory_hostname']) | list }}"
+
+- name: Set up pxelinux.cfg in FTP directory (default)
+  template:
+    src: pxelinux.cfg.j2
+    dest: "/var/lib/tftpboot/pxelinux.cfg/default"
+    owner: root
+    group: root
+    mode: "0644"
+  with_items:
+    - 'default'
 
 - name: Look up SSH public key
   set_fact:
     ssh_pub_key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
 
-- name: Create container linux configuration file locally
+- name: Fetch etcd discovery token
+  when: "'container_linux' in groups"
+  uri:
+    url: "https://discovery.etcd.io/new?size={{ groups['container_linux'] | length }}"
+    return_content: yes
+  register: etcd_discovery_token
+  failed_when: "'https://discovery.etcd.io/' not in etcd_discovery_token.content"
+
+- name: Create container linux configuration files
+  delegate_to: localhost
+  when: "'container_linux' in groups"
+  template:
+    src: container_linux_config.yaml.j2
+    dest: "/tmp/{{ item }}_container_linux_config.yaml"
+  with_items: "{{ groups['container_linux'] | map('extract', hostvars, ['inventory_hostname']) | list }}"
+
+- name: Create container linux configuration file (default)
   delegate_to: localhost
   template:
     src: container_linux_config.yaml.j2
-    dest: /tmp/container_linux_config.yaml
+    dest: "/tmp/{{ item }}_container_linux_config.yaml"
+  with_items:
+    - "default"
 
 - name: Install GPG2 locally
   delegate_to: localhost
@@ -94,7 +124,7 @@
       - gnupg2
     state: present
 
-- name: Install Container Linux configuration transpiler locally and transpile configuration to Ignition
+- name: Install Container Linux configuration transpiler locally
   changed_when: true
   delegate_to: localhost
   shell: |
@@ -102,45 +132,97 @@
     CT_VER=v0.6.1
     ARCH=x86_64
     OS=unknown-linux-gnu # Linux
+    FILE=ct-${CT_VER}-${ARCH}-${OS}
+    if test -f "/tmp/$FILE"; then
+      echo "$FILE exist"
+      exit 0
+    fi
     DOWNLOAD_URL=https://github.com/coreos/container-linux-config-transpiler/releases/download
     # Remove previous downloads
-    rm -f /tmp/ct-${CT_VER}-${ARCH}-${OS} /tmp/ct-${CT_VER}-${ARCH}-${OS}.asc /tmp/coreos-app-signing-pubkey.gpg
+    rm -f /tmp/${FILE} /tmp/${FILE}.asc /tmp/coreos-app-signing-pubkey.gpg
     # Download Config Transpiler binary
-    curl -L ${DOWNLOAD_URL}/${CT_VER}/ct-${CT_VER}-${ARCH}-${OS} -o /tmp/ct-${CT_VER}-${ARCH}-${OS}
-    chmod u+x /tmp/ct-${CT_VER}-${ARCH}-${OS}
+    curl -L ${DOWNLOAD_URL}/${CT_VER}/${FILE} -o /tmp/${FILE}
+    chmod u+x /tmp/${FILE}
     # Download and import CoreOS application signing GPG key
     curl https://coreos.com/dist/pubkeys/app-signing-pubkey.gpg -o /tmp/coreos-app-signing-pubkey.gpg
     gpg2 --import --keyid-format LONG /tmp/coreos-app-signing-pubkey.gpg
     # Download and import CoreOS application signing GPG key if it has not already been imported
-    curl -L ${DOWNLOAD_URL}/${CT_VER}/ct-${CT_VER}-${ARCH}-${OS}.asc -o /tmp/ct-${CT_VER}-${ARCH}-${OS}.asc
-    gpg2 --verify /tmp/ct-${CT_VER}-${ARCH}-${OS}.asc /tmp/ct-${CT_VER}-${ARCH}-${OS}
-    /tmp/ct-${CT_VER}-${ARCH}-${OS} --in-file /tmp/container_linux_config.yaml > /tmp/ignition_config.json
+    curl -L ${DOWNLOAD_URL}/${CT_VER}/${FILE}.asc -o /tmp/${FILE}.asc
+    gpg2 --verify /tmp/${FILE}.asc /tmp/${FILE}
+
+- name: Transpile configuration to Ignition
+  changed_when: true
+  delegate_to: localhost
+  when: "'container_linux' in groups"
+  shell: |
+    set -xe
+    CT_VER=v0.6.1
+    ARCH=x86_64
+    OS=unknown-linux-gnu # Linux
+    /tmp/ct-${CT_VER}-${ARCH}-${OS} --in-file /tmp/{{ item }}_container_linux_config.yaml > /tmp/{{ item }}_ignition_config.json
+  with_items: "{{ groups['container_linux'] | map('extract', hostvars, ['inventory_hostname']) | list }}"
+
+- name: Transpile configuration to Ignition (default)
+  changed_when: true
+  delegate_to: localhost
+  shell: |
+    set -xe
+    CT_VER=v0.6.1
+    ARCH=x86_64
+    OS=unknown-linux-gnu # Linux
+    /tmp/ct-${CT_VER}-${ARCH}-${OS} --in-file /tmp/{{ item }}_container_linux_config.yaml > /tmp/{{ item }}_ignition_config.json
+  with_items:
+    - "default"
 
 - name: Copy Ignition config to FTP directory
+  when: "'container_linux' in groups"
   copy:
-    src: /tmp/ignition_config.json
-    dest: /var/lib/tftpboot/pxe-config.ign
+    src: /tmp/{{ item }}_ignition_config.json
+    dest: /var/lib/tftpboot/{{ item }}-container-linux-config.ign
     owner: root
     group: root
     mode: "0644"
+  with_items: "{{ groups['container_linux'] | map('extract', hostvars, ['inventory_hostname']) | list }}"
 
-- name: Copy Ignition config to HTTP directory
+- name: Copy Ignition config to FTP directory (default)
   copy:
-    src: /tmp/ignition_config.json
-    dest: /var/www/html/pxe-config.ign
+    src: /tmp/{{ item }}_ignition_config.json
+    dest: /var/lib/tftpboot/{{ item }}-container-linux-config.ign
     owner: root
     group: root
-    mode: "0644"
-
-- name: Download the latest stable CoreOS kernel and initrd to the FTP directory
-  get_url:
-    force: yes
-    url: "{{ item }}"
-    dest: /var/lib/tftpboot/
     mode: "0644"
   with_items:
-  - "https://stable.release.core-os.net/amd64-usr/current/coreos_production_pxe.vmlinuz"
-  - "https://stable.release.core-os.net/amd64-usr/current/coreos_production_pxe_image.cpio.gz"
+    - "default"
+
+- name: Copy Ignition config to HTTP directory
+  when: "'container_linux' in groups"
+  copy:
+    src: /tmp/{{ item }}_ignition_config.json
+    dest: /var/www/html/{{ item }}-container-linux-config.ign
+    owner: root
+    group: root
+    mode: "0644"
+  with_items: "{{ groups['container_linux'] | map('extract', hostvars, ['inventory_hostname']) | list }}"
+
+- name: Copy Ignition config to HTTP directory (default)
+  copy:
+    src: /tmp/{{ item }}_ignition_config.json
+    dest: /var/www/html/{{ item }}-container-linux-config.ign
+    owner: root
+    group: root
+    mode: "0644"
+  with_items:
+    - "default"
+
+# - name: Download the latest stable CoreOS kernel and initrd to the FTP directory
+#   get_url:
+#     force: no
+#     url: "{{ item }}"
+#     dest: /var/lib/tftpboot/
+#     mode: "0644"
+#   with_items:
+#   - "https://stable.release.core-os.net/amd64-usr/current/coreos_production_pxe.vmlinuz"
+#   - "https://stable.release.core-os.net/amd64-usr/current/coreos_production_pxe_image.cpio.gz"
 
 - name: Change ownership of all files in the FTP directory to tftp user and group
   file:

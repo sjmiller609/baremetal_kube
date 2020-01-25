@@ -1,4 +1,4 @@
-FROM rancher/k3s:v1.0.0 as base
+FROM rancher/k3s:v1.17.0-k3s.1 as base
 
 # https://github.com/rancher/k3s/issues/390
 # Because of the above issue, we want to add

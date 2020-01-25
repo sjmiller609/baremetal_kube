@@ -67,46 +67,57 @@ class LocalNetworkInventory(object):
 
 
     def _get_motd(self, host, **kwargs):
+        motd = ''
+        cpu_mhz = 0
         try:
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             client.connect(host, **kwargs)
             stdin, stdout, stderr = client.exec_command('cat /etc/motd')
-            return stdout.read().decode('utf-8')
+            motd = stdout.read().decode('utf-8')
+            stdin, stdout, stderr = client.exec_command("lscpu | grep -i 'max mhz' | awk '{ print $4 }'")
+            cpu_mhz = float(stdout.read().decode('utf-8'))
         except Exception as e:
-            sys.stderr.write(f'{e}')
+            sys.stderr.write(f'{e}\n')
         finally:
             client.close()
-        return ''
+            return motd, cpu_mhz
 
     def _detect_os(self, host):
-        motd = self._get_motd(host,
+        motd, cpu_mhz = self._get_motd(host,
+                              port=22,
+                              username='core')
+        if 'container linux' in motd.lower():
+            return 'container_linux', cpu_mhz
+        motd, cpu_mhz = self._get_motd(host,
+                              port=22,
+                              username='pi')
+        if 'raspberrypi' in motd.lower():
+            return 'raspberry_pi', cpu_mhz
+        motd, cpu_mhz = self._get_motd(host,
                               port=22,
                               username=self.USERNAME,
                               password=self.PASSWORD)
         if 'edgeos' in motd.lower():
-            return 'edgeos'
-        motd = self._get_motd(host,
-                              port=22,
-                              username='core')
-        if 'container linux' in motd.lower():
-            return 'container_linux'
-        return None
+            return 'edgeos', cpu_mhz
+
+        return None, cpu_mhz
 
     def _discover_ssh_connect(self):
 
         self.routers = []
         self.container_linux = []
+        self.raspberry_pi = []
 
         for host in self.ssh_hosts:
-            os = self._detect_os(host)
+            os, cpu_mhz = self._detect_os(host)
             if os == 'edgeos':
                 sys.stderr.write(f'Detected EdgeOS on host: {host}\n')
                 self.routers.append(host)
             elif os == 'container_linux':
                 sys.stderr.write(f'Detected Container Linux on host: {host}\n')
                 hostname = f'node{len(self.container_linux)}'
-                self.container_linux.append(hostname)
+                self.container_linux.append((hostname, cpu_mhz))
                 self.hostvars[hostname] = {
                     'ansible_host': host,
                     'ansible_user': 'core',
@@ -115,9 +126,18 @@ class LocalNetworkInventory(object):
                     'bin_dir': '/opt/bin',
                     'ansible_become': 'yes'
                 }
+            elif os == 'raspberry_pi':
+                sys.stderr.write(f'Detected Raspberry Pi on host: {host}\n')
+                hostname = f'pi{len(self.raspberry_pi)}'
+                self.raspberry_pi.append((hostname, cpu_mhz))
+                self.hostvars[hostname] = {
+                    'ansible_host': host,
+                    'ansible_user': 'pi',
+                    'ansible_ssh_private_key_file': '~/.ssh/id_rsa'
+                }
 
             else:
-                sys.stderr.write(f'Did not detect Container Linux or EdgeOS on host: {host}\n')
+                sys.stderr.write(f'Did not detect Container Linux, EdgeOS, or Raspbian on host: {host}\n')
 
         if len(self.routers) > 1:
             raise Exception(
@@ -174,9 +194,15 @@ class LocalNetworkInventory(object):
                 self.cidrs.append(cidr)
 
     def _build_inventory(self):
+        # Sort hosts by CPU MHz
+        self.container_linux.sort(key = lambda x: x[1], reverse=True)
+        self.container_linux = [pair[0] for pair in self.container_linux]
+        self.raspberry_pi.sort(key = lambda x: x[1], reverse=True)
+        self.raspberry_pi = [pair[0] for pair in self.container_linux]
+
         self.inventory = {
             'all': {
-                'children': ['routers', 'container_linux', 'pxe_servers','k8s-cluster']
+                'children': ['routers', 'container_linux', 'pxe_servers','k8s-cluster', 'raspberry_pi']
             },
             'routers': {
                 'hosts': self.routers,
@@ -200,7 +226,7 @@ class LocalNetworkInventory(object):
             'kube-master': {
             },
             'k8s-cluster': {
-                'children': ['kube-node','kube-master','calico-rr']
+                'children': ['k3s-server','k3s-agent']
             },
             '_meta': {
                 'hostvars': self.hostvars

@@ -17,25 +17,52 @@
       changed_when: false
       ignore_errors: yes
       register: mac
-    - name: Save MAC address in variable
+    - name: Save MAC and IP address in variable
+      ignore_errors: yes
       set_fact:
         mac: "{{ mac.stdout | trim }}"
+        ip_address: "192.168.2.{{ groups['container_linux'].index(inventory_hostname) | int + 101 }}"
 
 # Set up a PXE server
 # so that by restarting computers in the network,
 # we can reinstall operating systems.
+#
+# Set up an NFS server
+# so that persistent volumes remain between
+# resets of the nodes in the cluster
+#
+# Set up Postgresql DB
+# so that the kubernetes state can
+# remain between resets of nodes in the cluster
 - hosts: localhost
   become: yes
   vars:
+    postgresql_hba_entries:
+      - type: host
+        database: all
+        user: all
+        address: '192.168.2.0/24'
+        auth_method: md5
+    postgresql_global_config_options:
+      - option: listen_addresses
+        value: '0.0.0.0'
+    postgresql_service_state: started
+    postgresql_service_enabled: true
+    postgresql_databases:
+      - name: k3s_db
+    postgresql_users:
+      - name: k3s
+        password: "{{ lookup('password', '~/.kube/k3s_postgresql_password length=64 chars=digits,ascii_letters') }}"
     nfs_exports:
       - "/data/nfs/read-only *(ro,sync,no_root_squash)"
       - "/data/nfs/read-only/movies *(ro,sync,no_root_squash)"
       - "/data/nfs/read-only/music *(ro,sync,no_root_squash)"
       - "/data/nfs/read-write *(rw,sync,no_root_squash)"
   roles:
-   - geerlingguy.nfs
-   - pxe-server
-#
+    - geerlingguy.nfs
+    # - geerlingguy.postgresql
+    - pxe-server
+
 # Targets should have their NIC first in their
 # boot order.
 - name: Reset nodes
@@ -54,6 +81,7 @@
       docker_container:
         name: k3s-server
         env:
+          K3S_DATASTORE_ENDPOINT: "postgres://k3s:{{ lookup('password', '~/.kube/k3s_postgresql_password length=64 chars=digits,ascii_letters') }}@192.168.2.100:5432/k3s_db"
           K3S_TOKEN: "{{ lookup('password', '~/.kube/k3s_token length=64 chars=digits,ascii_letters') }}"
         mounts: "{{ mounts }}"
         devices: "{{ devices }}"
@@ -61,8 +89,8 @@
         pull: no
         image: k3s
         network_mode: host
-        command: server --cluster-init
-        restart_policy: always
+        command: "server --with-node-id {{ inventory_hostname }}"
+        # restart_policy: always
 
     - name: Get the kubeconfig
       command: |
@@ -89,14 +117,17 @@
         state: present
       delegate_to: localhost
 
+
+
 - name: k3s masters
-  hosts: container_linux[1:7]
+  hosts: container_linux[1:3]
   gather_facts: no
   tasks:
     - name: Join remaining masters
       docker_container:
         name: k3s-server
         env:
+          K3S_DATASTORE_ENDPOINT: "postgres://k3s:{{ lookup('password', '~/.kube/k3s_postgresql_password length=64 chars=digits,ascii_letters') }}@192.168.2.100:5432/k3s_db"
           K3S_TOKEN: "{{ lookup('password', '~/.kube/k3s_token length=64 chars=digits,ascii_letters') }}"
           K3S_URL: "https://{{ hostvars[groups['container_linux'][0]]['ansible_host'] }}:6443"
         mounts: "{{ mounts }}"
@@ -105,11 +136,11 @@
         image: k3s
         pull: no
         network_mode: host
-        command: server
-        restart_policy: always
+        command: "server --with-node-id {{ inventory_hostname }}"
+        # restart_policy: always
 
 - name: k3s agents
-  hosts: container_linux[7:]
+  hosts: container_linux[3:]
   gather_facts: no
   tasks:
     - name: Join k3s agents
@@ -124,5 +155,5 @@
         image: k3s
         pull: no
         network_mode: host
-        command: agent
-        restart_policy: always
+        command: "agent --with-node-id {{ inventory_hostname }}"
+        # restart_policy: always

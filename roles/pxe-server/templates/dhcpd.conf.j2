@@ -23,8 +23,8 @@ subnet 192.168.2.0 netmask 255.255.255.0 {
 {% for host in groups['container_linux'] %}
 
   host node{{ loop.index }} {
-  	hardware ethernet {{ hostvars[host].mac }};
-  	fixed-address 192.168.2.{{ loop.index | int + 100 }};
+    hardware ethernet {{ hostvars[host].mac }};
+    fixed-address {{ hostvars[host].ip_address }};
     filename "/pxelinux.0";
   }
 {% endfor %}

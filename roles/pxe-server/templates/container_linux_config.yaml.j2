@@ -21,3 +21,12 @@ storage:
       format: ext4
       wipe_filesystem: true
       label: ROOT
+
+{% if item != 'default' %}
+etcd:
+  advertise_client_urls:       http://{{ hostvars[item].ip_address }}:2379
+  initial_advertise_peer_urls: http://{{ hostvars[item].ip_address }}:2380
+  listen_client_urls:          http://0.0.0.0:2379
+  listen_peer_urls:            http://{{ hostvars[item].ip_address }}:2380
+  discovery:                   {{ etcd_discovery_token.content | trim }}
+{% endif %}
