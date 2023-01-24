@@ -1,4 +1,4 @@
-ansible==2.9.2
+ansible==7.0.0
 netaddr==0.7.19
 netifaces==0.10.9
 paramiko==2.6.0
